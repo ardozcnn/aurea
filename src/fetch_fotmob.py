@@ -80,7 +80,7 @@ def _match_played_at(match: dict[str, Any]) -> datetime | None:
         return None
 
 
-def _soften_rate(total: float, apps: float, prior_rate: float, prior_apps: float = 6.0) -> float:
+def _soften_rate(total: float, apps: float, prior_rate: float, prior_apps: float = 10.0) -> float:
     """Tek maçlık 2 gol gibi gürültüyü sezon prior'una doğru küçültür."""
     apps = max(0.0, float(apps))
     return (float(total) + prior_rate * prior_apps) / (apps + prior_apps)
@@ -92,13 +92,13 @@ def hot_form_blend_weight(
     *,
     early_season: bool = False,
 ) -> float:
-    """Güncel sonucun ağırlığı; tek 90 dakika yaklaşık %8, dört maç en çok %25."""
+    """Güncel sonucun ağırlığı; tek 90 dakika yaklaşık %6, üst sınır %12."""
     apps = max(0.0, float(sl_apps))
     minutes = max(0.0, float(sl_minutes if sl_minutes is not None else apps * 75.0))
     if apps <= 0 or minutes <= 0:
         return 0.0
-    prior_minutes = 990.0 if early_season else 810.0
-    return min(0.25, minutes / (minutes + prior_minutes))
+    prior_minutes = 1350.0 if early_season else 1170.0
+    return min(0.12, minutes / (minutes + prior_minutes))
 
 
 _PRIOR_GLS = {"FW": 0.40, "MF": 0.15, "DF": 0.06, "GK": 0.0}
@@ -364,7 +364,12 @@ def apply_fotmob_validation(
     out = players.copy()
     price = pd.to_numeric(out.get("price_m"), errors="coerce").fillna(0.0)
     form_apps = pd.to_numeric(out.get("form_apps"), errors="coerce").fillna(0.0)
-    candidate = (price >= 7.0) | ((price >= 5.5) & (form_apps < 4))
+    tff_pts = pd.to_numeric(out.get("tff_points"), errors="coerce").fillna(0.0)
+    candidate = (
+        (price >= 7.0)
+        | ((price >= 5.5) & (form_apps < 4))
+        | (tff_pts >= 8)
+    )
     todo = out.loc[candidate].sort_values(
         ["price_m", "projected_pts"], ascending=False
     ).head(max_fetch)
@@ -407,18 +412,12 @@ def apply_fotmob_validation(
 
             sl_apps = float(validation.get("fotmob_sl_apps") or 0.0)
             form_n = float(out.at[idx, "form_apps"] or 0.0) if "form_apps" in out.columns else 0.0
-            tff_minutes = (
-                float(out.at[idx, "tff_minutes"] or 0.0)
-                if "tff_minutes" in out.columns and pd.notna(out.at[idx, "tff_minutes"])
-                else 0.0
-            )
             tff_points = (
                 float(out.at[idx, "tff_points"] or 0.0)
                 if "tff_points" in out.columns and pd.notna(out.at[idx, "tff_points"])
                 else 0.0
             )
-            has_fresh_tff = 0 < tff_minutes < 400 and tff_points != 0
-            use_hot = sl_apps >= 1 and not has_fresh_tff and (
+            use_hot = sl_apps >= 1 and tff_points == 0 and (
                 early_season or form_n < 1.5
             )
             if use_hot:

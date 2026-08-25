@@ -77,6 +77,9 @@ KNOWN_ALIASES = {
     "mason will john greenwood": "mason greenwood",
     "leroy aziz sane": "leroy sane",
     "victor james osimhen": "victor osimhen",
+    "anderson talisca": "talisca",
+    "talisca anderson": "talisca",
+    "anderson souza": "talisca",
     "anderson souza conceicao": "talisca",
     "muhammed kerem akturkoglu": "kerem akturkoglu",
     "ederson santana de moraes": "ederson",
@@ -129,6 +132,11 @@ def name_variants(name: str) -> list[str]:
         add(alias)
 
     tokens = n.split()
+    if len(tokens[-1]) >= 5:
+        add(tokens[-1])
+    for tok in tokens[:-1]:
+        if len(tok) >= 6 and tok not in COMMON_FIRST:
+            add(tok)
     if len(tokens) >= 2:
         add(f"{tokens[0]} {tokens[-1]}")
         if len(tokens) >= 3:

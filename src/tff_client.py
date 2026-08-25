@@ -456,7 +456,7 @@ def parse_tff_official_players(data: Any, clubs: dict[int, str] | None = None) -
                 "tff_points": p.get("totalPoints") or 0,
                 "tff_ppm": p.get("pointsPerMatch") or 0,
                 "tff_minutes": p.get("minutes") or 0,
-                "tff_starts": p.get("starts") or 0,
+                "tff_starts": _infer_tff_starts(p.get("starts"), p.get("minutes")),
                 "tff_goals": p.get("goals") or 0,
                 "tff_assists": p.get("assists") or 0,
                 "tff_bonus": p.get("bonus") or 0,
@@ -470,6 +470,23 @@ def parse_tff_official_players(data: Any, clubs: dict[int, str] | None = None) -
         .drop_duplicates(subset=["player_name", "team"], keep="first")
         .reset_index(drop=True)
     )
+
+
+
+def _infer_tff_starts(starts: object, minutes: object) -> int:
+    try:
+        start_n = int(float(starts or 0))
+    except (TypeError, ValueError):
+        start_n = 0
+    try:
+        minute_n = float(minutes or 0)
+    except (TypeError, ValueError):
+        minute_n = 0.0
+    if start_n > 0:
+        return start_n
+    if minute_n >= 60.0:
+        return max(1, int(round(minute_n / 90.0)))
+    return 0
 
 
 def fetch_club_map(session: requests.Session, league_id: str) -> dict[int, str]:

@@ -172,9 +172,7 @@ def opportunity_threshold(
     weeks_per_card = max(weeks_left, 1) / max(remaining, 1)
     even_pace = SEASON_MATCHWEEKS / max(budget, 1)
     scarcity = weeks_per_card / max(even_pace, 1e-9)
-    deck_ratio = remaining / max(budget, 1)
-    season_remaining = max(weeks_left, 1) / max(SEASON_MATCHWEEKS, 1)
-    patience = 1.0 + 0.55 * deck_ratio * season_remaining
+    patience = 1.0 + 0.40 * max(0.0, scarcity - 1.05)
     return float(base) * max(1.0, scarcity) * patience
 
 

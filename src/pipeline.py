@@ -185,9 +185,17 @@ def run_pipeline(
 
     cap = result["captain"]
     xi = result.get("xi", squad)
-    cap_row = xi.loc[xi["projected_pts"].idxmax()]
-    cap["display_name"] = str(cap_row.get("display_name") or cap["player"])
-    cap["reason"] = str(cap_row.get("reason") or "")
+    cap_player = str(cap.get("player") or "")
+    matched = (
+        xi[xi["player"].astype(str) == cap_player]
+        if cap_player and "player" in xi.columns
+        else xi.iloc[0:0]
+    )
+    if matched.empty:
+        matched = xi.nlargest(1, "projected_pts")
+    cap_row = matched.iloc[0]
+    cap["display_name"] = str(cap_row.get("display_name") or cap.get("player") or "")
+    cap["reason"] = str(cap_row.get("reason") or cap.get("reason") or "")
     cap["data_src"] = str(cap_row.get("data_src") or "")
     result["captain"] = cap
 

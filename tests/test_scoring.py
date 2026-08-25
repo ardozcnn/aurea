@@ -19,13 +19,16 @@ from src.league_translation import (
     translate_metric_mixture,
 )
 from src.fetch_stats import blend_team_cs_rates
+from src.names import best_match
 from src.scoring import (
     _blend_rate_sets,
     _empty_rates,
     _recency_multiplier,
     apply_context_adjustments,
     blend_weights,
+    estimate_play_probability,
     expected_points_from_rates,
+    leftover_tff_season,
     lookup_fixture_context,
     recency_for_projection,
     shrink_small_sample_rates,
@@ -93,8 +96,8 @@ class ScoringTests(unittest.TestCase):
 
     def test_fotmob_hot_form_softens_two_goal_burst(self) -> None:
         self.assertAlmostEqual(
-            _soften_rate(2.0, 1.0, 0.40, 6.0),
-            4.4 / 7.0,
+            _soften_rate(2.0, 1.0, 0.40),
+            6.0 / 11.0,
             places=5,
         )
         first_week_weight = hot_form_blend_weight(
@@ -102,8 +105,8 @@ class ScoringTests(unittest.TestCase):
             90.0,
             early_season=True,
         )
-        self.assertGreater(first_week_weight, 0.07)
-        self.assertLess(first_week_weight, 0.10)
+        self.assertGreater(first_week_weight, 0.05)
+        self.assertLess(first_week_weight, 0.08)
         first_form, first_base = blend_weights(1.0)
         full_form, full_base = blend_weights(6.0)
         self.assertAlmostEqual(first_form, 1.0 / 5.0)
@@ -321,6 +324,222 @@ class ScoringTests(unittest.TestCase):
         self.assertGreater(float(adjusted.loc[0, "pts_if_plays"]), 5.0)
         self.assertLess(float(adjusted.loc[0, "pts_if_plays"]), 7.0)
 
+    def test_lucky_one_week_haul_does_not_outrank_established_star(self) -> None:
+        frame = pd.DataFrame(
+            [
+                {
+                    "player": "Şanslı Forvet",
+                    "team": "X",
+                    "position": "FW",
+                    "price_m": 5.5,
+                    "projected_pts": 3.5,
+                    "form_apps": 1,
+                    "min_per_app": 90,
+                    "availability": "AVAILABLE",
+                    "tff_minutes": 90,
+                    "tff_starts": 1,
+                    "tff_points": 14,
+                    "tff_ppm": 14,
+                },
+                {
+                    "player": "Talisca",
+                    "team": "Fenerbahçe",
+                    "position": "FW",
+                    "price_m": 11.0,
+                    "projected_pts": 6.2,
+                    "form_apps": 2,
+                    "min_per_app": 90,
+                    "established_sl_apps": 20,
+                    "availability": "AVAILABLE",
+                    "tff_minutes": 180,
+                    "tff_starts": 2,
+                    "tff_points": 12,
+                    "tff_ppm": 6,
+                },
+            ]
+        )
+
+        adjusted = apply_context_adjustments(frame)
+
+        self.assertGreater(
+            float(adjusted.loc[1, "pts_if_plays"]),
+            float(adjusted.loc[0, "pts_if_plays"]),
+        )
+
+    def test_repeat_high_official_weeks_raise_star_projection(self) -> None:
+        frame = pd.DataFrame(
+            [
+                {
+                    "player": "Yildiz Forvet",
+                    "team": "Y",
+                    "position": "FW",
+                    "price_m": 12.0,
+                    "projected_pts": 5.8,
+                    "form_apps": 2,
+                    "min_per_app": 90,
+                    "availability": "AVAILABLE",
+                    "tff_minutes": 180,
+                    "tff_starts": 0,
+                    "tff_points": 29,
+                    "tff_ppm": 14.5,
+                }
+            ]
+        )
+        adjusted = apply_context_adjustments(frame)
+        pts = float(adjusted.loc[0, "pts_if_plays"])
+        self.assertGreaterEqual(pts, 8.5)
+        self.assertLess(pts, 13.0)
+
+    def test_one_week_high_score_starter_stays_selectable(self) -> None:
+        frame = pd.DataFrame(
+            [
+                {
+                    "player": "Ucuza Patlayan",
+                    "team": "Z",
+                    "position": "MF",
+                    "price_m": 5.5,
+                    "projected_pts": 3.7,
+                    "form_apps": 1,
+                    "min_per_app": 77,
+                    "availability": "AVAILABLE",
+                    "tff_minutes": 77,
+                    "tff_starts": 0,
+                    "tff_points": 16,
+                    "tff_ppm": 16,
+                }
+            ]
+        )
+        adjusted = apply_context_adjustments(frame)
+        self.assertGreaterEqual(float(adjusted.loc[0, "pts_if_plays"]), 5.5)
+        self.assertLess(float(adjusted.loc[0, "pts_if_plays"]), 9.0)
+
+    def test_fotmob_injury_blocks_selection_even_if_tff_says_available(self) -> None:
+        frame = pd.DataFrame(
+            [
+                {
+                    "player": "Sakat Yildiz",
+                    "team": "A",
+                    "position": "FW",
+                    "price_m": 12.0,
+                    "projected_pts": 9.0,
+                    "form_apps": 6,
+                    "min_per_app": 90,
+                    "availability": "AVAILABLE",
+                    "tff_minutes": 180,
+                    "tff_points": 29,
+                    "tff_ppm": 14.5,
+                    "fotmob_injury": True,
+                },
+                {
+                    "player": "Saglam Forvet",
+                    "team": "B",
+                    "position": "FW",
+                    "price_m": 8.0,
+                    "projected_pts": 5.5,
+                    "form_apps": 6,
+                    "min_per_app": 90,
+                    "availability": "AVAILABLE",
+                    "tff_minutes": 180,
+                    "tff_points": 10,
+                    "tff_ppm": 5.0,
+                    "fotmob_injury": False,
+                },
+            ]
+        )
+        adjusted = apply_context_adjustments(frame)
+        self.assertFalse(bool(adjusted.loc[0, "selection_eligible"]))
+        self.assertEqual(float(adjusted.loc[0, "play_probability"]), 0.0)
+        self.assertTrue(bool(adjusted.loc[1, "selection_eligible"]))
+        self.assertGreater(float(adjusted.loc[1, "projected_pts"]), 0.0)
+
+    def test_projection_is_not_raw_tff_points_per_match(self) -> None:
+        frame = pd.DataFrame(
+            [
+                {
+                    "player": "Ham 16 Ppm",
+                    "team": "A",
+                    "position": "MF",
+                    "price_m": 5.5,
+                    "projected_pts": 3.6,
+                    "form_apps": 1,
+                    "min_per_app": 77,
+                    "availability": "AVAILABLE",
+                    "tff_minutes": 77,
+                    "tff_starts": 0,
+                    "tff_points": 16,
+                    "tff_ppm": 16,
+                },
+                {
+                    "player": "Model 6 Ppm",
+                    "team": "B",
+                    "position": "FW",
+                    "price_m": 11.0,
+                    "projected_pts": 6.2,
+                    "form_apps": 2,
+                    "min_per_app": 90,
+                    "established_sl_apps": 20,
+                    "availability": "AVAILABLE",
+                    "tff_minutes": 180,
+                    "tff_starts": 2,
+                    "tff_points": 12,
+                    "tff_ppm": 6,
+                },
+            ]
+        )
+        adjusted = apply_context_adjustments(frame)
+        cheap = float(adjusted.loc[0, "pts_if_plays"])
+        star = float(adjusted.loc[1, "pts_if_plays"])
+        self.assertLess(cheap, 9.0)
+        self.assertLess(star, 9.0)
+        self.assertNotAlmostEqual(cheap, 16.0, places=1)
+        self.assertGreater(cheap, 5.0)
+        self.assertGreater(star, 5.5)
+
+    def test_current_week_goalkeeper_tff_ranks_clean_sheet_over_collapse(self) -> None:
+        frame = pd.DataFrame(
+            [
+                {
+                    "player": "Iyi Hafta Kaleci",
+                    "team": "A",
+                    "position": "GK",
+                    "price_m": 4.5,
+                    "projected_pts": 4.7,
+                    "form_apps": 1,
+                    "min_per_app": 90,
+                    "current_minutes": 90,
+                    "availability": "AVAILABLE",
+                    "tff_minutes": 90,
+                    "tff_starts": 0,
+                    "tff_points": 9,
+                    "tff_ppm": 9,
+                },
+                {
+                    "player": "Uc Gol Kaleci",
+                    "team": "B",
+                    "position": "GK",
+                    "price_m": 4.5,
+                    "projected_pts": 4.5,
+                    "form_apps": 1,
+                    "min_per_app": 90,
+                    "current_minutes": 90,
+                    "availability": "AVAILABLE",
+                    "tff_minutes": 90,
+                    "tff_starts": 0,
+                    "tff_points": 1,
+                    "tff_ppm": 1,
+                },
+            ]
+        )
+        adjusted = apply_context_adjustments(frame)
+        self.assertGreater(
+            float(adjusted.loc[0, "pts_if_plays"]),
+            float(adjusted.loc[1, "pts_if_plays"]),
+        )
+        self.assertGreater(
+            float(adjusted.loc[0, "projected_pts"]),
+            float(adjusted.loc[1, "projected_pts"]),
+        )
+
     def test_goalkeeper_depth_prevents_single_old_clean_sheet_from_starting(self) -> None:
         frame = pd.DataFrame(
             [
@@ -355,6 +574,147 @@ class ScoringTests(unittest.TestCase):
             adjusted.loc[0, "projected_pts"],
             adjusted.loc[1, "projected_pts"],
         )
+
+    def test_leftover_tff_backup_does_not_outrank_current_goalkeeper(self) -> None:
+        self.assertTrue(leftover_tff_season(1800, 0))
+        self.assertFalse(leftover_tff_season(90, 1))
+        frame = pd.DataFrame(
+            [
+                {
+                    "player": "Guncel Kaleci",
+                    "team": "A",
+                    "position": "GK",
+                    "projected_pts": 4.1,
+                    "price_m": 4.5,
+                    "base_apps": 1,
+                    "min_per_app": 90,
+                    "form_apps": 1,
+                    "current_minutes": 90,
+                    "tff_minutes": 90,
+                    "tff_starts": 1,
+                    "availability": "AVAILABLE",
+                },
+                {
+                    "player": "Eski Yedek",
+                    "team": "A",
+                    "position": "GK",
+                    "projected_pts": 5.8,
+                    "price_m": 4.5,
+                    "base_apps": 33,
+                    "min_per_app": 90,
+                    "form_apps": 0,
+                    "current_minutes": 0,
+                    "tff_minutes": 1800,
+                    "tff_starts": 20,
+                    "availability": "AVAILABLE",
+                },
+            ]
+        )
+        adjusted = apply_context_adjustments(frame)
+        self.assertGreater(
+            float(adjusted.loc[0, "gk_start_probability"]),
+            float(adjusted.loc[1, "gk_start_probability"]),
+        )
+        self.assertGreater(
+            float(adjusted.loc[0, "projected_pts"]),
+            float(adjusted.loc[1, "projected_pts"]),
+        )
+
+    def test_unused_last_season_goalkeeper_has_lower_play_probability(self) -> None:
+        current = {
+            "player": "Bu Sezon Oynayan",
+            "team": "A",
+            "position": "GK",
+            "form_apps": 1,
+            "min_per_app": 90,
+            "current_minutes": 90,
+            "tff_minutes": 90,
+            "tff_starts": 1,
+            "gk_start_probability": 1.0,
+            "availability": "AVAILABLE",
+        }
+        unused = {
+            "player": "Gecen Sezon Kaleci",
+            "team": "B",
+            "position": "GK",
+            "form_apps": 0,
+            "min_per_app": 90,
+            "current_minutes": 0,
+            "tff_minutes": 1800,
+            "tff_starts": 34,
+            "gk_start_probability": 1.0,
+            "availability": "AVAILABLE",
+        }
+        self.assertGreater(
+            estimate_play_probability(current),
+            estimate_play_probability(unused) + 0.25,
+        )
+
+    def test_one_match_three_goals_conceded_does_not_crush_goalkeeper(self) -> None:
+        rates = _empty_rates()
+        rates.update(
+            {
+                "apps": 1.0,
+                "apps_60": 1.0,
+                "share_60": 1.0,
+                "min_per_app": 90.0,
+                "cs_rate": 0.0,
+                "ga_pa": 3.0,
+                "saves_pa": 4.0,
+                "rating": 6.8,
+            }
+        )
+        pts = expected_points_from_rates(
+            rates,
+            "GK",
+            team_cs_rate=0.30,
+            appearance=1.0,
+        )
+        self.assertGreater(pts, 3.0)
+        thin = expected_points_from_rates(
+            rates,
+            "GK",
+            appearance=1.0,
+        )
+        crushed = expected_points_from_rates(
+            {**rates, "apps": 10.0},
+            "GK",
+            appearance=1.0,
+        )
+        self.assertGreater(thin, crushed)
+
+    def test_mid_price_current_starter_gets_selection_floor(self) -> None:
+        frame = pd.DataFrame(
+            [
+                {
+                    "player": "Orta Fiyat Forvet",
+                    "team": "X",
+                    "position": "FW",
+                    "price_m": 7.0,
+                    "projected_pts": 2.0,
+                    "form_apps": 1,
+                    "min_per_app": 90,
+                    "availability": "AVAILABLE",
+                    "tff_minutes": 90,
+                    "tff_starts": 1,
+                    "tff_points": 2,
+                    "tff_ppm": 2,
+                    "tff_xg": 0.6,
+                    "xg_pa": 0.0,
+                }
+            ]
+        )
+        adjusted = apply_context_adjustments(frame)
+        self.assertGreaterEqual(float(adjusted.loc[0, "pts_if_plays"]), 3.4)
+        self.assertGreater(float(adjusted.loc[0, "xg_pa"]), 0.0)
+
+    def test_long_surname_variant_matches_without_alias_list(self) -> None:
+        matched, score = best_match(
+            "Luka Verylongsurname",
+            ["Verylongsurname", "Other Player"],
+        )
+        self.assertEqual(matched, "Verylongsurname")
+        self.assertGreaterEqual(score, 78)
 
     def test_injured_and_suspended_players_are_not_selection_eligible(self) -> None:
         frame = pd.DataFrame(
@@ -436,6 +796,14 @@ class ScoringTests(unittest.TestCase):
         context = {"basaksehir fk": {"opponent": "Kocaelispor"}}
         fixture = lookup_fixture_context("İstanbul Başakşehir", context)
         self.assertEqual(fixture["opponent"], "Kocaelispor")
+
+    def test_talisca_alias_matches(self) -> None:
+        matched, score = best_match(
+            "Anderson Talisca",
+            ["Talisca", "Other"],
+        )
+        self.assertEqual(matched, "Talisca")
+        self.assertGreaterEqual(score, 78)
 
     def test_missing_recent_appearances_reduce_weekly_projection(self) -> None:
         self.assertEqual(_recency_multiplier(6, 6), 1.0)
@@ -1148,9 +1516,14 @@ class ScoringTests(unittest.TestCase):
             opportunity_threshold(6.0, remaining=2, weeks_left=20),
             opportunity_threshold(6.0, remaining=10, weeks_left=34),
         )
-        self.assertGreater(
+        self.assertAlmostEqual(
             opportunity_threshold(6.0, remaining=10, weeks_left=34),
+            6.0,
+            places=1,
+        )
+        self.assertLessEqual(
             opportunity_threshold(6.0, remaining=10, weeks_left=12),
+            opportunity_threshold(6.0, remaining=10, weeks_left=34) + 1e-9,
         )
         hold = choose_manager_card(
             [{"card": "Tripleks Kaptan", "extra_pts": 6.4, "why": "3x"}],
@@ -1159,8 +1532,14 @@ class ScoringTests(unittest.TestCase):
         )
         self.assertFalse(hold["use"])
         self.assertEqual(hold["remaining"], 2)
-        early_hold = choose_manager_card(
+        early_use = choose_manager_card(
             [{"card": "Tripleks Kaptan", "extra_pts": 6.4, "why": "3x"}],
+            remaining=10,
+            weeks_left=33,
+        )
+        self.assertTrue(early_use["use"])
+        early_hold = choose_manager_card(
+            [{"card": "Tripleks Kaptan", "extra_pts": 5.2, "why": "3x"}],
             remaining=10,
             weeks_left=33,
         )
