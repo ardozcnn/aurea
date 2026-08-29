@@ -384,14 +384,26 @@ def score_universe(universe: pd.DataFrame, engine: Engine) -> pd.DataFrame:
 
 
 def similar_players(engine: Engine, universe: pd.DataFrame, player_id: int, k: int = 8) -> list[dict]:
+    from app.slugs import club_display, is_free_agent
+
     prepared = prepare_frame(universe)
     row = prepared.loc[prepared["player_id"] == player_id]
     if row.empty:
         return []
+    seed = row.iloc[0]
+    q_pos = str(seed.get("position") or "")
+    q_sub = str(seed.get("sub_position") or "")
+    q_league = str(seed.get("league_id") or "")
+    q_age = float(seed.get("age") or 0) if pd.notna(seed.get("age")) else 0.0
+    q_min = float(seed.get("minutes_2y") or 0)
+    q_contrib = float(seed.get("contrib_p90") or 0)
     nn_num = ["age", "minutes_2y", "goals_p90", "assists_p90", "contrib_p90", "tier", "is_gk", "intl_caps", "peak_log"]
     query = row[nn_num + ["position"]]
-    dist, idx = engine.nn.named_steps["nn"].kneighbors(engine.nn.named_steps["prep"].transform(query), n_neighbors=min(k + 6, len(engine.nn_ids)))
-    results = []
+    n_ask = min(max(k + 36, 20), len(engine.nn_ids))
+    dist, idx = engine.nn.named_steps["nn"].kneighbors(
+        engine.nn.named_steps["prep"].transform(query), n_neighbors=n_ask
+    )
+    ranked = []
     seen = {int(player_id)}
     for d, j in zip(dist[0], idx[0]):
         pid = int(engine.nn_ids[j])
@@ -402,22 +414,53 @@ def similar_players(engine: Engine, universe: pd.DataFrame, player_id: int, k: i
         if hit.empty:
             continue
         rec = hit.iloc[0]
-        results.append(
-            {
-                "player_id": pid,
-                "name": rec.get("name"),
-                "image_url": rec.get("image_url"),
-                "club": rec.get("current_club_name"),
-                "position": rec.get("position"),
-                "age": None if pd.isna(rec.get("age")) else round(float(rec.get("age")), 1),
-                "market_value_in_eur": None if pd.isna(rec.get("market_value_in_eur")) else float(rec.get("market_value_in_eur")),
-                "true_value": None if pd.isna(rec.get("true_value")) else float(rec.get("true_value")) if "true_value" in rec else None,
-                "distance": float(d),
-            }
+        club = str(rec.get("current_club_name") or "")
+        if is_free_agent(club):
+            continue
+        pos = str(rec.get("position") or "")
+        sub = str(rec.get("sub_position") or "")
+        league = str(rec.get("league_id") or "")
+        age = float(rec.get("age") or 0) if pd.notna(rec.get("age")) else 0.0
+        mins = float(rec.get("minutes_2y") or 0)
+        contrib = float(rec.get("contrib_p90") or 0)
+        age_ok = (not q_age) or (not age) or abs(age - q_age) <= 6
+        min_floor = max(500.0, q_min * 0.35) if q_min >= 900 else 240.0
+        if q_min >= 1800:
+            min_floor = max(min_floor, 900.0)
+        min_ok = mins >= min_floor
+        if q_contrib >= 0.28 and q_pos in {"Attack", "Midfield"} and mins >= 800:
+            if contrib < q_contrib * 0.35 and pos == q_pos:
+                continue
+        if not age_ok or not min_ok:
+            continue
+        same_pos = 0 if q_pos and pos == q_pos else 1
+        same_sub = 0 if q_sub and sub == q_sub else 1
+        same_league = 0 if q_league and league == q_league else 1
+        ranked.append(
+            (
+                same_pos,
+                same_sub,
+                same_league,
+                float(d),
+                {
+                    "player_id": pid,
+                    "name": rec.get("name"),
+                    "image_url": rec.get("image_url"),
+                    "club": club_display(club),
+                    "position": rec.get("position"),
+                    "sub_position": rec.get("sub_position"),
+                    "league_id": league,
+                    "age": None if pd.isna(rec.get("age")) else round(float(rec.get("age")), 1),
+                    "market_value_in_eur": None if pd.isna(rec.get("market_value_in_eur")) else float(rec.get("market_value_in_eur")),
+                    "true_value": None if pd.isna(rec.get("true_value")) else float(rec.get("true_value")) if "true_value" in rec else None,
+                    "distance": float(d),
+                },
+            )
         )
-        if len(results) >= k:
-            break
-    return results
+    same = [item for item in ranked if item[0] == 0]
+    pool = same if len(same) >= max(4, k // 2) else ranked
+    pool.sort(key=lambda item: (item[0], item[1], item[2], item[3]))
+    return [item[4] for item in pool[:k]]
 
 
 def rescore_row(engine: Engine, universe: pd.DataFrame, player_id: int, overrides: dict[str, Any] | None = None) -> dict:

@@ -111,8 +111,8 @@ class ScoringTests(unittest.TestCase):
         full_form, full_base = blend_weights(6.0)
         self.assertAlmostEqual(first_form, 1.0 / 5.0)
         self.assertAlmostEqual(first_base, 4.0 / 5.0)
-        self.assertAlmostEqual(full_form, 0.30)
-        self.assertAlmostEqual(full_base, 0.70)
+        self.assertAlmostEqual(full_form, 0.42)
+        self.assertAlmostEqual(full_base, 0.58)
 
         hot = hot_form_expected_points(
             {
@@ -807,7 +807,7 @@ class ScoringTests(unittest.TestCase):
 
     def test_missing_recent_appearances_reduce_weekly_projection(self) -> None:
         self.assertEqual(_recency_multiplier(6, 6), 1.0)
-        self.assertAlmostEqual(_recency_multiplier(0, 6), 0.65)
+        self.assertAlmostEqual(_recency_multiplier(0, 6), 0.72)
         self.assertGreater(_recency_multiplier(5, 6), 0.9)
         self.assertEqual(recency_for_projection(1, 6, preseason=True), 1.0)
         self.assertAlmostEqual(recency_for_projection(1, 6, preseason=False), 0.65 + 0.35 / 6)

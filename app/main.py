@@ -18,12 +18,27 @@ from app.fantasy_bridge import login_account as fantasy_login
 from app.fantasy_bridge import logout_account as fantasy_logout
 from app.fantasy_bridge import start as fantasy_start
 from app.fantasy_bridge import status as fantasy_status
+from app.method import method_pack
 from app.model import load_engine, train_engine
-from app.store import leagues, market, player_detail, pulse, ready, scout, search, set_store, try_load_existing
+from app.store import (
+    calibration_pack,
+    club_list,
+    club_roster,
+    compare_pack,
+    leagues,
+    market,
+    player_detail,
+    pulse,
+    ready,
+    scout,
+    search,
+    set_store,
+    try_load_existing,
+)
 from app.transfers import desk as superlig_desk
 from app.warehouse import bootstrap
 
-app = FastAPI(title="Aurea", version="0.5.0")
+app = FastAPI(title="Aurea", version="0.6.0")
 app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
 
 _BOOT_LOCK = threading.Lock()
@@ -93,10 +108,24 @@ def api_bootstrap():
 
 
 @app.get("/api/search")
-def api_search(q: str = Query("", min_length=0)):
+def api_search(
+    q: str = Query("", min_length=0),
+    league: str | None = None,
+    position: str | None = None,
+    age_min: int | None = None,
+    age_max: int | None = None,
+):
     if not ready():
         raise HTTPException(409, "Motor henüz hazır değil.")
-    return {"results": search(q)}
+    return {
+        "results": search(
+            q,
+            league=league,
+            position=position,
+            age_min=age_min,
+            age_max=age_max,
+        )
+    }
 
 
 @app.get("/api/pulse")
@@ -123,6 +152,8 @@ def api_market(
     order: str = "desc",
     page: int = 1,
     min_minutes: int = 0,
+    age_min: int | None = None,
+    age_max: int | None = None,
 ):
     if not ready():
         raise HTTPException(409, "Motor henüz hazır değil.")
@@ -135,6 +166,8 @@ def api_market(
         order=order,
         page=page,
         min_minutes=min_minutes,
+        age_min=age_min,
+        age_max=age_max,
     )
 
 
@@ -168,6 +201,75 @@ def api_player(player_id: int, live: bool = True):
         raise HTTPException(404, "Oyuncu bulunamadı.")
     except Exception as extra:
         raise HTTPException(502, f"Oyuncu dosyası alınamadı: {extra}") from extra
+
+
+@app.get("/api/players/{player_id}/pdf")
+def api_player_pdf(player_id: int):
+    if not ready():
+        raise HTTPException(409, "Motor henüz hazır değil.")
+    try:
+        pack = player_detail(player_id, live=True)
+    except KeyError:
+        raise HTTPException(404, "Oyuncu bulunamadı.")
+    except Exception as extra:
+        raise HTTPException(502, f"Oyuncu dosyası alınamadı: {extra}") from extra
+    try:
+        from app.pdf_report import build_player_pdf
+
+        data = build_player_pdf(pack)
+    except Exception as extra:
+        raise HTTPException(500, f"PDF üretilemedi: {extra}") from extra
+    name = (pack.get("player") or {}).get("name") or f"oyuncu-{player_id}"
+    slug = "".join(ch if ch.isalnum() else "-" for ch in str(name))[:48].strip("-")
+    filename = f"aurea-{slug or player_id}.pdf"
+    return Response(
+        content=data,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/clubs")
+def api_clubs():
+    if not ready():
+        raise HTTPException(409, "Motor henüz hazır değil.")
+    return club_list()
+
+
+@app.get("/api/clubs/{token}")
+def api_club(token: str):
+    if not ready():
+        raise HTTPException(409, "Motor henüz hazır değil.")
+    try:
+        return club_roster(token)
+    except KeyError:
+        raise HTTPException(404, "Kulüp bulunamadı.")
+
+
+@app.get("/api/compare")
+def api_compare(left: int = Query(...), right: int = Query(...)):
+    if not ready():
+        raise HTTPException(409, "Motor henüz hazır değil.")
+    if left == right:
+        raise HTTPException(400, "İki farklı oyuncu seçin.")
+    try:
+        return compare_pack(left, right)
+    except KeyError:
+        raise HTTPException(404, "Oyuncu bulunamadı.")
+    except Exception as extra:
+        raise HTTPException(502, f"Karşılaştırma alınamadı: {extra}") from extra
+
+
+@app.get("/api/yontem")
+def api_yontem():
+    return method_pack()
+
+
+@app.get("/api/olcum")
+def api_olcum():
+    if not ready():
+        raise HTTPException(409, "Motor henüz hazır değil.")
+    return calibration_pack()
 
 
 @app.get("/api/model")

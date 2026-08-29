@@ -1092,15 +1092,37 @@ def _pname(player: dict[str, Any]) -> str:
     return _tidy_name(str(player.get("display_name") or player.get("player") or ""))
 
 
+def _if_plays(player: dict[str, Any]) -> float:
+    return float(player.get("pts_if_plays") or player.get("projected_pts") or 0)
+
+
 def _ppm(player: dict[str, Any]) -> float | None:
     n = _num(player.get("ppm") or player.get("tff_ppm"))
     if n is not None:
         return n
-    pts = _num(player.get("projected_pts"))
+    pts = _if_plays(player)
     price = _num(player.get("price_m"))
     if pts is None or not price:
         return None
     return pts / price
+
+
+def _avail_tr(code: str, news: str = "") -> str:
+    key = str(code or "").upper()
+    labels = {
+        "INJURED": "sakat",
+        "INJURY": "sakat",
+        "SUSPENDED": "cezalı",
+        "DOUBTFUL": "şüpheli",
+        "QUESTIONABLE": "şüpheli",
+        "UNAVAILABLE": "yok",
+        "OUT": "dışarıda",
+    }
+    word = labels.get(key)
+    if not word:
+        return ""
+    extra = f" ({news})" if news else ""
+    return word + extra
 
 
 def _analysis(raw: dict[str, Any], public: dict[str, Any]) -> list[dict[str, str]]:
@@ -1114,97 +1136,136 @@ def _analysis(raw: dict[str, Any], public: dict[str, Any]) -> list[dict[str, str
     public["manager_card"] = card
     comps = public.get("formation_comparisons") or []
     sections: list[dict[str, str]] = []
-    total = result.get("total_projected")
+    total = result.get("xi_if_plays") or result.get("total_projected")
     bank = _num(result.get("bank"))
     if total is not None:
-        bank_txt = f" Kasa {bank:.1f} mn." if bank is not None else ""
-        sections.append(
-            {
-                "title": "Haftalık puan",
-                "body": (
-                    f"Bu kadro {float(total):.1f} puan bekliyor. "
-                    f"İlk 11 {float(result.get('xi_projected') or 0):.1f}, "
-                    f"yedek {float(result.get('bench_projected') or 0):.1f}."
-                    f"{bank_txt}"
-                ).strip(),
-            }
-        )
+        ev = float(result.get("total_projected") or 0)
+        bits = [
+            f"İlk 11 beklenen puanı {float(total):.1f}. "
+            f"Seçim değeri {ev:.1f}; yedekler {float(result.get('bench_projected') or 0):.1f}."
+        ]
+        if bank is not None:
+            if bank >= 2.5:
+                bits.append(
+                    f"Kasada {bank:.1f} mn duruyor. Boş bütçe puan getirmez; "
+                    "yedek yükseltmek veya fark yaratacak bir isim bakılır."
+                )
+            elif bank >= 0:
+                bits.append(f"Kasa {bank:.1f} mn.")
+        bits.append("Karttaki rakam beklenen puandır; oturan isim bunu getirmez.")
+        sections.append({"title": "Haftalık okuma", "body": " ".join(bits)})
     if xi:
-        ordered = sorted(xi, key=lambda p: float(p.get("projected_pts") or 0), reverse=True)
-        top = "; ".join(
-            f"{_pname(p)} {float(p.get('projected_pts') or 0):.1f}"
-            for p in ordered[:5]
-        )
-        tail = [p for p in ordered if float(p.get("projected_pts") or 0) < 2.2]
-        tail_txt = ""
+        ordered = sorted(xi, key=_if_plays, reverse=True)
+        top = ", ".join(f"{_pname(p)} {_if_plays(p):.1f}" for p in ordered[:4])
+        tail = [p for p in ordered if _if_plays(p) < 3.6]
+        body = f"Yükü çekenler: {top}."
         if tail:
-            tail_txt = " Zayıf halka: " + ", ".join(
-                f"{_pname(p)} {float(p.get('projected_pts') or 0):.1f}" for p in tail[:3]
-            ) + "."
-        sections.append({"title": "İlk 11", "body": top + "." + tail_txt})
+            body += " Zayıf halka: " + ", ".join(
+                f"{_pname(p)} {_if_plays(p):.1f}" for p in tail[:3]
+            ) + ". Fikstür veya form düşerse bu koltuklar değişir."
+        homes = [p for p in xi if p.get("fixture_home") is True]
+        aways = [p for p in xi if p.get("fixture_home") is False]
+        if homes or aways:
+            body += f" İç saha {len(homes)}, deplasman {len(aways)}."
+        fixtures = []
+        for p in ordered[:6]:
+            opp = p.get("fixture_opponent")
+            if not opp:
+                continue
+            side = "iç saha" if p.get("fixture_home") is True else "deplasman" if p.get("fixture_home") is False else ""
+            fixtures.append(f"{_pname(p)} {opp}" + (f" ({side})" if side else ""))
+        if fixtures:
+            body += " Fikstür: " + "; ".join(fixtures[:5]) + "."
+        form_bits = []
+        for p in ordered[:5]:
+            form = p.get("tff_form")
+            if form not in (None, "", 0):
+                try:
+                    form_bits.append(f"{_pname(p)} {float(form):.1f}")
+                except (TypeError, ValueError):
+                    continue
+        if form_bits:
+            body += " Son hafta formu: " + ", ".join(form_bits[:4]) + "."
+        sections.append({"title": "İlk 11", "body": body})
     if cap:
-        raw_pts = float(cap.get("projected_pts") or 0)
+        raw_pts = _if_plays(cap)
         name = _pname(cap) or "—"
-        xi_sorted = sorted(
-            xi, key=lambda p: float(p.get("pts_if_plays") or p.get("projected_pts") or 0), reverse=True
-        )
+        xi_sorted = sorted(xi, key=_if_plays, reverse=True)
         alt = next((p for p in xi_sorted if _pname(p) != name), None)
-        alt_txt = ""
-        if alt:
-            alt_txt = (
-                f" İkinci {_pname(alt)} ({alt.get('team') or '—'}), "
-                f"{float(alt.get('projected_pts') or 0):.1f} p."
-            )
-        sections.append(
-            {
-                "title": "Kaptan",
-                "body": (
-                    f"{name} ({cap.get('team') or '—'}) kaptan, {raw_pts:.1f} p. "
-                    f"Standart ×2 {raw_pts * 2:.1f}, Tripleks ×3 {raw_pts * 3:.1f}."
-                    f"{alt_txt}"
-                ).strip(),
-            }
+        body = (
+            f"{name} kaptan. Beklenen {raw_pts:.1f}; çift {raw_pts * 2:.1f}, "
+            f"Tripleks {raw_pts * 3:.1f}."
         )
+        if cap.get("fixture_opponent"):
+            side = "iç sahada" if cap.get("fixture_home") is True else "deplasmanda" if cap.get("fixture_home") is False else "karşısında"
+            body += f" Bu hafta {side} {cap.get('fixture_opponent')} var."
+        if alt:
+            gap = _if_plays(alt) - raw_pts
+            if gap >= 0.8:
+                body += (
+                    f" {_pname(alt)} ({alt.get('team') or '—'}) beklenen {_if_plays(alt):.1f}; "
+                    "kaptan koltuğu ona daha yakın."
+                )
+            else:
+                body += (
+                    f" İkinci aday {_pname(alt)}, {_if_plays(alt):.1f}. "
+                    "Fark küçük; forma haberi netleşmeden kaptan tutulur."
+                )
+        sections.append({"title": "Kaptan", "body": body.strip()})
     sections.append({"title": "Menajer kartı", "body": _card_sentence(card)})
     flags = []
     for player in squad:
-        avail = str(player.get("availability") or "").upper()
-        news = str(player.get("avail_news") or "").strip()
-        if avail and avail not in {"AVAILABLE", "AVAILABLE_TO_PLAY", ""}:
-            flags.append(f"{_pname(player)} {avail.lower()}" + (f" ({news})" if news else ""))
+        label = _avail_tr(player.get("availability") or "", str(player.get("avail_news") or "").strip())
+        if label:
+            flags.append(f"{_pname(player)} {label}")
     if flags:
         sections.append(
             {
                 "title": "Hazırlık",
-                "body": "Forma şüphesi: " + "; ".join(flags[:6]) + ".",
+                "body": "Forma riski olanlar: " + "; ".join(flags[:6]) + ". Riskli ismi ilk 11’de tutmak puanı eritir.",
             }
         )
     if comps:
+        best = max(comps, key=lambda row: float(row.get("expected_pts") or 0), default=None)
         line = "; ".join(
             f"{row.get('formation')} {float(row.get('expected_pts') or 0):.1f}"
-            for row in comps[:6]
+            for row in comps[:5]
         )
+        pick = result.get("formation")
+        extra = ""
+        if best and pick and best.get("formation") != pick:
+            extra = f" En yüksek okuma {best.get('formation')} ({float(best.get('expected_pts') or 0):.1f})."
         sections.append(
             {
                 "title": "Diziliş",
-                "body": f"Seçilen {result.get('formation')}. Karşılaştırma: {line}.",
+                "body": f"Seçilen {pick}. Karşılaştırma: {line}.{extra}",
             }
         )
     if bench:
-        names = ", ".join(_pname(p) for p in bench[:4] if _pname(p))
+        ordered_b = sorted(bench, key=_if_plays, reverse=True)
+        names = ", ".join(
+            f"{_pname(p)} {_if_plays(p):.1f}" for p in ordered_b[:4] if _pname(p)
+        )
         if names:
-            sections.append({"title": "Yedekler", "body": names + "."})
+            sections.append(
+                {
+                    "title": "Yedekler",
+                    "body": f"{names}. Yedek, sakatlık ve rotasyon için tutulur; ilk 11’den puan çalmaz.",
+                }
+            )
     watch = public.get("watch") or []
     if watch:
+        bits = []
+        for p in watch[:5]:
+            line = f"{_pname(p)} {float(p.get('price_m') or 0):.1f} mn, {_if_plays(p):.1f} p"
+            sel = _num(p.get("selected_by"))
+            if sel is not None and sel <= 12:
+                line += f", yüzde {sel:.0f} seçilmiş"
+            bits.append(line)
         sections.append(
             {
                 "title": "Alınabilecekler",
-                "body": "Kadro dışı, fiyata göre iyi puan: "
-                + "; ".join(
-                    f"{_pname(p)} {float(p.get('price_m') or 0):.1f} mn, {float(p.get('projected_pts') or 0):.1f} p"
-                    for p in watch[:5]
-                )
-                + ".",
+                "body": "Kadro dışında, fiyata göre beklenen puan: " + "; ".join(bits) + ".",
             }
         )
     return sections
@@ -1215,6 +1276,8 @@ def _public(raw: dict[str, Any]) -> dict[str, Any]:
     for key in ("squad", "xi", "bench"):
         rows = result.get(key) or []
         result[key] = [_slim_player(row) if isinstance(row, dict) else row for row in rows]
+    xi_rows = [p for p in (result.get("xi") or []) if isinstance(p, dict)]
+    result["xi_if_plays"] = round(sum(_if_plays(p) for p in xi_rows), 2)
     cap = result.get("captain")
     if isinstance(cap, dict):
         for key in ("display_name", "player"):

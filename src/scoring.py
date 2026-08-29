@@ -412,20 +412,20 @@ def shrink_official_ppg(
     price = float(price_m or 0.0)
     pos = str(position or "").upper()
     if sample >= 1.8:
-        prior = 1.5
-        cap_extra = 5.5
+        prior = 1.2
+        cap_extra = 6.5
     elif pos == "GK" and sample >= 0.8:
-        prior = 3.5
-        cap_extra = 3.75
-    elif price >= 9.5 and sample >= 0.8:
-        prior = 3.0
+        prior = 2.8
         cap_extra = 4.5
+    elif price >= 9.5 and sample >= 0.8:
+        prior = 2.4
+        cap_extra = 5.5
     elif 0.0 < price < 7.0 and sample <= 1.5 and observed > model + 5.0:
-        prior = 10.0
-        cap_extra = 2.5
+        prior = 7.0
+        cap_extra = 3.2
     else:
-        prior = 8.0
-        cap_extra = 2.75
+        prior = 5.5
+        cap_extra = 3.5
     shrunk = (sample * observed + prior * model) / (sample + prior)
     return min(shrunk, model + cap_extra)
 
@@ -537,7 +537,7 @@ def blend_weights(form_apps: float) -> tuple[float, float]:
 def _recency_multiplier(form_apps: float, form_matches: float) -> float:
     recent_matches = max(1.0, float(form_matches or 0))
     recent_presence = min(1.0, max(0.0, form_apps) / recent_matches)
-    return 0.65 + 0.35 * recent_presence
+    return 0.72 + 0.28 * recent_presence
 
 
 def recency_for_projection(
@@ -1348,18 +1348,18 @@ def apply_context_adjustments(df: pd.DataFrame) -> pd.DataFrame:
         live_official & (official_apps < 1.8) & position.eq("GK"),
         2.5,
     )
-    official_weight = (official_apps / 30.0).clip(lower=0.0, upper=0.35)
+    official_weight = (official_apps / 24.0).clip(lower=0.0, upper=0.48)
     early_official = (tff_minutes > 0) & (tff_minutes < 900)
     official_weight = official_weight.where(
         ~early_official,
         (official_apps / (official_apps + early_prior)).clip(
-            lower=0.0, upper=0.72
+            lower=0.0, upper=0.82
         ),
     )
     thin_current = current_apps <= EARLY_SEASON_FORM_CAP_APPS
     official_weight = official_weight.where(
         ~thin_current,
-        official_weight.clip(upper=0.72),
+        official_weight.clip(upper=0.82),
     )
     has_official = (tff_minutes > 0) & ~leftover_full_season
     pts = pts.where(
@@ -1395,7 +1395,7 @@ def apply_context_adjustments(df: pd.DataFrame) -> pd.DataFrame:
         & (price_m >= 9.5)
         & starter_evidence
     )
-    premium_floor = 3.2 + 0.18 * (price_m - 9.5)
+    premium_floor = 3.6 + 0.22 * (price_m - 9.5)
     pts = pts.where(
         ~premium_starter,
         pd.concat([pts, premium_floor], axis=1).max(axis=1),
@@ -1407,7 +1407,7 @@ def apply_context_adjustments(df: pd.DataFrame) -> pd.DataFrame:
         & (price_m < 9.5)
         & starter_evidence
     )
-    mid_floor = pd.Series(3.4, index=out.index)
+    mid_floor = pd.Series(3.8, index=out.index)
     pts = pts.where(
         ~mid_starter,
         pd.concat([pts, mid_floor], axis=1).max(axis=1),
@@ -1417,7 +1417,7 @@ def apply_context_adjustments(df: pd.DataFrame) -> pd.DataFrame:
         & position.eq("GK")
         & starter_evidence
     )
-    gk_floor = pd.Series(3.2, index=out.index)
+    gk_floor = pd.Series(3.6, index=out.index)
     pts = pts.where(
         ~live_gk,
         pd.concat([pts, gk_floor], axis=1).max(axis=1),

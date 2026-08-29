@@ -44,11 +44,21 @@ def format_pct(value, signed: bool = True) -> str:
     return f"%{body}"
 
 
+GAP_CHEAP = -20.0
+GAP_RICH = 35.0
+
+
 def gap_direction(gap_pct) -> str:
     if gap_pct is None:
         return "belirsiz"
-    if gap_pct <= -12:
+    try:
+        n = float(gap_pct)
+    except (TypeError, ValueError):
+        return "belirsiz"
+    if n != n:
+        return "belirsiz"
+    if n <= GAP_CHEAP:
         return "dusuk"
-    if gap_pct >= 12:
+    if n >= GAP_RICH:
         return "yuksek"
     return "denge"

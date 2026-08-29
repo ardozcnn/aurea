@@ -265,7 +265,7 @@ def run_pipeline(
                 "dakika (60+=2p) + xG/xA + şut/kilit pas + CS/kart/bonus/penaltı; "
                 "Poisson takım hücum/savunma ile oyuncu gol payı; 3 haftalık ufuk; "
                 "erken sezon sayım metrikleri daha yüksek, nadir olaylar temkinli; "
-                "oynama olasılığı × oynarsa puan; TFF otomatik yedek EV; "
+                "forma payı × beklenen puan; TFF otomatik yedek EV; "
                 "haftalık rakip ve iç/dış saha; Sofascore + FotMob doğrulaması; "
                 "resmî TFF puan kalibrasyonu; dış lig→SL dönüşüm; "
                 "diziliş otomatik; yedek sırası otomatik girişe göre."

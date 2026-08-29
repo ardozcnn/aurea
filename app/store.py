@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from app.analysis import build_report
+from app.analysis import build_report, compare_verdict
 from app.config import (
     ACTIVE_SEASON_FLOOR,
     CATALOG_LEAGUES,
@@ -25,9 +25,18 @@ from app.config import (
     UNIVERSE_PARQUET,
 )
 from app.features import prepare_frame
-from app.live_tm import current_season_totals, open_injury_days, player_bundle, search_players
+from app.live_fotmob import player_dossier
+from app.live_tm import (
+    club_overlay_get,
+    club_overlay_put,
+    current_season_totals,
+    open_injury_days,
+    player_bundle,
+    search_players,
+)
 from app.model import Engine, rescore_row, score_universe, similar_players
-from app.money import format_eur, format_pct, gap_direction
+from app.money import GAP_CHEAP, GAP_RICH, format_eur, format_pct, gap_direction
+from app.slugs import club_display, club_path, club_token, is_free_agent, parse_tm_id, player_path, player_slug, slugify
 from app.warehouse import warehouse_ready
 
 _LOCK = threading.Lock()
@@ -115,16 +124,49 @@ def _clean(value):
     return json_safe(value)
 
 
+def _apply_overlays(df: pd.DataFrame) -> pd.DataFrame:
+    overlay = club_overlay_get()
+    if not overlay or df.empty or "player_id" not in df.columns:
+        return df
+    out = df.copy()
+    for key, meta in overlay.items():
+        if not isinstance(meta, dict):
+            continue
+        try:
+            pid = int(key)
+        except (TypeError, ValueError):
+            continue
+        mask = pd.to_numeric(out["player_id"], errors="coerce") == pid
+        if not mask.any():
+            continue
+        name = str(meta.get("club") or "").strip()
+        if name:
+            out.loc[mask, "current_club_name"] = name
+        cid = meta.get("club_id")
+        if cid:
+            out.loc[mask, "current_club_id"] = cid
+        lid = str(meta.get("league_id") or "").strip()
+        if lid:
+            out.loc[mask, "league_id"] = lid
+    return out
+
+
 def card(row: pd.Series) -> dict[str, Any]:
     pid = _clean(row.get("player_id"))
     gap = _clean(row.get("gap_pct"))
+    overlay = {}
+    if pid is not None:
+        overlay = club_overlay_get().get(str(int(pid))) or {}
+    club_name = str(overlay.get("club") or row.get("current_club_name") or "")
+    club_id = overlay.get("club_id") if overlay.get("club_id") else row.get("current_club_id")
+    league_id = overlay.get("league_id") or row.get("league_id")
     payload = {
         "player_id": int(pid) if pid is not None else None,
         "name": row.get("name"),
         "image_url": _clean(row.get("image_url")),
-        "club": row.get("current_club_name"),
-        "league_id": None if pd.isna(row.get("league_id")) else str(row.get("league_id")),
-        "league": LEAGUE_NAMES.get(str(row.get("league_id") or ""), str(row.get("league_id") or "")),
+        "club": club_display(club_name),
+        "league_id": None if pd.isna(league_id) else str(league_id),
+        "league": LEAGUE_NAMES.get(str(league_id or ""), str(league_id or "")),
         "position": POSITION_TR.get(str(row.get("position") or ""), row.get("position")),
         "sub_position": SUB_POSITION_TR.get(str(row.get("sub_position") or ""), row.get("sub_position")),
         "age": None if pd.isna(row.get("age")) else int(round(float(row.get("age")))),
@@ -144,6 +186,14 @@ def card(row: pd.Series) -> dict[str, Any]:
         "contract_years": _clean(row.get("contract_years")),
         "goals_2y": _clean(row.get("goals_2y")),
         "assists_2y": _clean(row.get("assists_2y")),
+        "href": player_path(pid, row.get("name")) if pid is not None else None,
+        "slug": player_slug(pid, row.get("name")) if pid is not None else None,
+        "club_href": club_path(club_id, club_name, league_id)
+        if club_name and not is_free_agent(club_name)
+        else None,
+        "club_token": club_token(club_id, club_name, league_id)
+        if club_name and not is_free_agent(club_name)
+        else None,
     }
     return json_safe(payload)
 
@@ -164,8 +214,36 @@ def _name_rank(name: str, q: str) -> int:
     return 7
 
 
-def search(query: str, limit: int = 18) -> list[dict]:
-    q = (query or "").strip().lower()
+def search(
+    query: str,
+    limit: int = 18,
+    league: str | None = None,
+    position: str | None = None,
+    age_min: int | None = None,
+    age_max: int | None = None,
+) -> list[dict]:
+    raw = (query or "").strip()
+    tm_id = parse_tm_id(raw)
+    if tm_id:
+        df = universe()
+        hit = df[df["player_id"] == tm_id]
+        if not hit.empty:
+            item = card(hit.iloc[0])
+            item["match"] = 0
+            return json_safe([item])
+        return json_safe(
+            [
+                {
+                    "player_id": tm_id,
+                    "name": raw.split("/")[-1] if "/" in raw else raw,
+                    "href": player_path(tm_id, ""),
+                    "live_only": True,
+                    "direction": "belirsiz",
+                    "match": 0,
+                }
+            ]
+        )
+    q = raw.lower()
     if len(q) < 2:
         return []
     df = universe()
@@ -173,6 +251,14 @@ def search(query: str, limit: int = 18) -> list[dict]:
     code = df["player_code"].astype("string").str.lower().fillna("") if "player_code" in df.columns else names
     club = df["current_club_name"].astype("string").str.lower().fillna("") if "current_club_name" in df.columns else names
     hit = df[names.str.contains(q, regex=False) | code.str.contains(q, regex=False) | club.str.contains(q, regex=False)].copy()
+    if league:
+        hit = hit[hit["league_id"].astype("string") == str(league)]
+    if position:
+        hit = hit[hit["position"].astype("string") == str(position)]
+    if age_min is not None:
+        hit = hit[pd.to_numeric(hit.get("age"), errors="coerce").fillna(0) >= int(age_min)]
+    if age_max is not None:
+        hit = hit[pd.to_numeric(hit.get("age"), errors="coerce").fillna(99) <= int(age_max)]
     if hit.empty and len(q) < 2:
         return []
     hit["_rank"] = hit["name"].astype("string").fillna("").map(lambda n: _name_rank(str(n), q))
@@ -204,6 +290,7 @@ def search(query: str, limit: int = 18) -> list[dict]:
                 "age": item.get("age"),
                 "tm_value": item.get("marketValue"),
                 "tm_label": format_eur(item.get("marketValue")),
+                "href": player_path(int(pid), name) if pid.isdigit() else None,
                 "live_only": True,
                 "direction": "belirsiz",
                 "match": _name_rank(name, q),
@@ -237,25 +324,31 @@ def market(
     page: int = 1,
     page_size: int = 40,
     min_minutes: int = 0,
+    age_min: int | None = None,
+    age_max: int | None = None,
 ) -> dict:
-    df = _catalog()
+    df = _apply_overlays(_catalog())
     if league:
         df = df[df["league_id"].astype("string") == str(league)]
     if position:
         df = df[df["position"].astype("string") == str(position)]
     if min_minutes:
         df = df[df["minutes_365"].fillna(0) >= min_minutes]
+    if age_min is not None:
+        df = df[pd.to_numeric(df.get("age"), errors="coerce").fillna(0) >= int(age_min)]
+    if age_max is not None:
+        df = df[pd.to_numeric(df.get("age"), errors="coerce").fillna(99) <= int(age_max)]
     if q:
         needle = q.strip().lower()
         df = df[df["name"].astype("string").str.lower().str.contains(needle, regex=False, na=False)]
     if direction in {"dusuk", "yuksek", "denge"}:
         gap = df["gap_pct"]
         if direction == "dusuk":
-            df = df[gap <= -12]
+            df = df[gap <= GAP_CHEAP]
         elif direction == "yuksek":
-            df = df[gap >= 12]
+            df = df[gap >= GAP_RICH]
         else:
-            df = df[gap.between(-12, 12)]
+            df = df[gap.between(GAP_CHEAP, GAP_RICH)]
     allowed = {
         "true_value": "true_value",
         "tm": "market_value_in_eur",
@@ -287,26 +380,40 @@ def market(
 
 
 def pulse() -> dict:
-    df = _catalog()
+    df = _apply_overlays(_catalog())
+    club_ok = ~df["current_club_name"].fillna("").astype(str).map(is_free_agent)
     liquid = df[
-        (df["minutes_365"].fillna(0) >= 900)
+        club_ok
+        & (df["minutes_365"].fillna(0) >= 900)
         & df["true_value"].notna()
         & df["gap_pct"].notna()
         & (df["market_value_in_eur"].fillna(0) >= 750_000)
         & (df["true_value"] >= 1_500_000)
         & (df["age"].fillna(99).between(18, 33))
     ]
-    cheap = liquid[liquid["gap_pct"].between(-48, -12)].sort_values("true_value", ascending=False).head(8)
-    rich = liquid[liquid["gap_pct"].between(12, 60)].sort_values("market_value_in_eur", ascending=False).head(8)
-    young = df[(df["age"].fillna(99) <= 23) & (df["minutes_365"].fillna(0) >= 450)].sort_values("true_value", ascending=False).head(8)
-    superlig = df[df["league_id"].astype("string") == "TR1"].sort_values("true_value", ascending=False).head(8)
-    stars = df.sort_values("true_value", ascending=False).head(8)
+    cheap = liquid[liquid["gap_pct"].between(-48, GAP_CHEAP)].sort_values("true_value", ascending=False).head(8)
+    rich = liquid[liquid["gap_pct"] >= GAP_RICH].sort_values("market_value_in_eur", ascending=False).head(8)
+    young = df[
+        club_ok
+        & (df["age"].fillna(99) <= 23)
+        & (df["minutes_365"].fillna(0) >= 450)
+    ].sort_values("true_value", ascending=False).head(8)
+    superlig = df[
+        club_ok & (df["league_id"].astype("string") == "TR1")
+    ].sort_values("true_value", ascending=False).head(8)
+    stars = df[
+        club_ok
+        & (df["minutes_365"].fillna(0) >= 900)
+        & df["true_value"].notna()
+        & (df["market_value_in_eur"].fillna(0) >= 400_000)
+        & (df["age"].fillna(99).between(18, 34))
+    ].sort_values("true_value", ascending=False).head(8)
     listed = leagues()
     by_id = {row["id"]: row for row in listed}
     featured = [by_id[code] for code in FEATURED_LEAGUES if code in by_id]
 
     def _league_top(code: str, n: int = 8) -> list[dict]:
-        part = df[df["league_id"].astype("string") == code]
+        part = df[club_ok & (df["league_id"].astype("string") == code)]
         return [card(r) for _, r in part.sort_values("true_value", ascending=False).head(n).iterrows()]
 
     return {
@@ -321,6 +428,10 @@ def pulse() -> dict:
         "japan": _league_top("JAP1"),
         "leagues": listed,
         "featured": featured,
+        "clubs": sorted(
+            club_list().get("clubs", []),
+            key=lambda r: (0 if r.get("league_id") == "TR1" else 1, -(r.get("true_sum") or 0)),
+        )[:16],
         "counts": {
             "universe": int(len(universe())),
             "active": int(len(df)),
@@ -378,7 +489,7 @@ def _scout_pack(row: pd.Series) -> dict[str, Any]:
                 else "Düzenli ama her hafta tam 90 değil."
             )
         )
-    if gap_n is not None and gap_n <= -12:
+    if gap_n is not None and gap_n <= GAP_CHEAP:
         paragraphs.append(
             "Transfermarkt etiketi Aurea değerinin altında. "
             "Piyasa, üretime göre ucuz yazıyor. Sağlık ve sözleşme dosyada doğrulanır."
@@ -397,7 +508,7 @@ def _scout_pack(row: pd.Series) -> dict[str, Any]:
 
 
 def scout() -> dict:
-    df = _catalog()
+    df = _apply_overlays(_catalog())
     liquid = df[
         df["true_value"].notna()
         & df["gap_pct"].notna()
@@ -648,7 +759,7 @@ def player_detail(player_id: int, live: bool = True) -> dict:
             "season_totals": season,
             "injuries": (bundle.get("injuries") or [])[:8],
             "injury_days": injury_days,
-            "market_history": (bundle.get("market_history") or [])[-16:],
+            "market_history": (bundle.get("market_history") or [])[-24:],
             "transfers": (bundle.get("transfers") or [])[:8],
             "profile": {
                 "fullName": (bundle.get("profile") or {}).get("fullName"),
@@ -668,9 +779,23 @@ def player_detail(player_id: int, live: bool = True) -> dict:
         }
         if live_view["profile"].get("imageUrl"):
             payload["image_url"] = live_view["profile"]["imageUrl"]
-        club_live = (live_view["profile"].get("club") or {}).get("name")
+        club_pack = live_view["profile"].get("club") or {}
+        club_live = club_pack.get("name")
+        club_live_id = club_pack.get("id")
         if club_live:
-            payload["club"] = club_live
+            payload["club"] = club_display(str(club_live))
+            if is_free_agent(str(club_live)):
+                payload["club_href"] = None
+                payload["club_token"] = None
+            elif club_live_id:
+                payload["club_href"] = club_path(club_live_id, club_live, payload.get("league_id") or "")
+                payload["club_token"] = club_token(club_live_id, club_live, payload.get("league_id") or "")
+            club_overlay_put(
+                player_id,
+                club_id=None if is_free_agent(str(club_live)) else club_live_id,
+                club_name="Kulüpsüz" if is_free_agent(str(club_live)) else club_live,
+                league_id=str(payload.get("league_id") or ""),
+            )
         if live_view["profile"].get("shirtNumber"):
             payload["shirt"] = live_view["profile"]["shirtNumber"]
         if live_view["profile"].get("caps"):
@@ -683,13 +808,49 @@ def player_detail(player_id: int, live: bool = True) -> dict:
         if live_view["profile"].get("birthplace"):
             payload["birthplace"] = live_view["profile"]["birthplace"]
         payload["live_fetched_at"] = live_view.get("fetched_at")
+        hist = live_view.get("market_history") or []
+        valued = [h for h in hist if h.get("marketValue")]
+        if len(valued) < 2:
+            peak = payload.get("highest_market_value_in_eur")
+            tm_now = payload.get("tm_value")
+            if peak and tm_now:
+                live_view["market_history"] = [
+                    {"date": None, "marketValue": peak, "clubName": ""},
+                    {"date": (live_view.get("fetched_at") or "")[:10], "marketValue": tm_now, "clubName": ""},
+                ]
+    if live_view is None:
+        live_view = {}
+    try:
+        dossier = player_dossier(
+            str(payload.get("name") or row.get("name") or ""),
+            str(payload.get("club") or row.get("current_club_name") or ""),
+        )
+    except Exception:
+        dossier = None
+    if dossier:
+        live_view["fotmob"] = dossier
+        payload["form_live"] = {
+            "apps": dossier.get("apps"),
+            "minutes": dossier.get("minutes"),
+            "goals": dossier.get("goals"),
+            "assists": dossier.get("assists"),
+            "xg": dossier.get("xg"),
+            "xa": dossier.get("xa"),
+            "shots": dossier.get("shots"),
+            "sot": dossier.get("sot"),
+            "recent": dossier.get("recent"),
+            "injured": dossier.get("injured"),
+            "league": dossier.get("league"),
+            "season": dossier.get("season"),
+            "source": "FotMob",
+        }
     row_dict = {k: _clean(v) if not isinstance(v, (dict, list)) else v for k, v in row.items()}
     row_dict.update(payload)
-    report = build_report(row_dict, similar, live_view)
+    report = build_report(row_dict, similar, live_view if live_view else None)
     for item in similar:
         item["tm_label"] = format_eur(item.get("market_value_in_eur"))
         item["true_label"] = format_eur(item.get("true_value"))
-        item["position"] = POSITION_TR.get(str(item.get("position") or ""), item.get("position"))
+        item["href"] = player_path(item.get("player_id"), item.get("name"))
     stats_rows = []
     for rec in season.get("rows") or []:
         stats_rows.append(
@@ -710,5 +871,246 @@ def player_detail(player_id: int, live: bool = True) -> dict:
             "live": live_view,
             "season_table": stats_rows,
             "meta": eng.meta,
+            "href": payload.get("href") or player_path(player_id, payload.get("name")),
+            "pdf": f"/api/players/{int(player_id)}/pdf",
+        }
+    )
+
+
+def club_list() -> dict:
+    df = _apply_overlays(_catalog())
+    if "current_club_name" not in df.columns:
+        return {"clubs": []}
+    rows = []
+    grouped = df.groupby(["current_club_name", "league_id"], dropna=False)
+    for (name, lid), part in grouped:
+        label = str(name or "").strip()
+        if not label or label.lower() in {"nan", "none"} or is_free_agent(label):
+            continue
+        label = club_display(label)
+        cid = None
+        if "current_club_id" in part.columns and part["current_club_id"].notna().any():
+            cid = part["current_club_id"].dropna().iloc[0]
+        token = club_token(cid, label, str(lid or ""))
+        gap = pd.to_numeric(part.get("gap_pct"), errors="coerce")
+        true = pd.to_numeric(part.get("true_value"), errors="coerce")
+        tm = pd.to_numeric(part.get("market_value_in_eur"), errors="coerce")
+        rows.append(
+            {
+                "id": token,
+                "name": label,
+                "league_id": str(lid or ""),
+                "league": LEAGUE_NAMES.get(str(lid or ""), str(lid or "")),
+                "players": int(len(part)),
+                "href": club_path(cid, label, str(lid or "")),
+                "cheap": int((gap <= GAP_CHEAP).sum()),
+                "rich": int((gap >= GAP_RICH).sum()),
+                "true_sum": float(true.fillna(0).sum()),
+                "true_label": format_eur(true.fillna(0).sum()),
+                "tm_sum": float(tm.fillna(0).sum()),
+                "tm_label": format_eur(tm.fillna(0).sum()),
+            }
+        )
+    rows.sort(key=lambda r: (0 if r["league_id"] == "TR1" else 1, slugify(r.get("league") or ""), slugify(r.get("name") or "")))
+    return json_safe({"clubs": rows})
+
+
+def club_roster(token: str) -> dict:
+    df = _apply_overlays(_catalog())
+    key = str(token or "").strip()
+    cid = None
+    if key.startswith("c") and key[1:].isdigit():
+        cid = int(key[1:])
+        ids = pd.to_numeric(df.get("current_club_id"), errors="coerce")
+        part = df[ids == cid]
+    elif key.startswith("n-"):
+        rest = key[2:]
+        lig, _, name_slug = rest.partition("-")
+        if not name_slug:
+            name_slug = lig
+            lig = ""
+        names = df["current_club_name"].astype("string").fillna("")
+        mask = names.map(lambda n: slugify(str(n)) == name_slug)
+        if lig:
+            mask = mask & (df["league_id"].astype("string").str.lower() == lig.lower())
+        part = df[mask]
+    else:
+        part = df.iloc[0:0]
+    if part.empty and cid is None:
+        raise KeyError(token)
+    sample = part.iloc[0] if not part.empty else None
+    title = str((sample.get("current_club_name") if sample is not None else None) or "Kulüp")
+    lid = str((sample.get("league_id") if sample is not None else None) or "")
+    if sample is None:
+        title = "Kulüp"
+        lid = ""
+    league_name = LEAGUE_NAMES.get(lid, lid)
+    href = club_path(cid if cid is not None else (sample.get("current_club_id") if sample is not None else None), title, lid)
+    if cid is None and sample is not None:
+        raw_cid = sample.get("current_club_id")
+        try:
+            if raw_cid == raw_cid and raw_cid is not None:
+                cid = int(float(raw_cid))
+        except (TypeError, ValueError):
+            cid = None
+    moves: dict[str, Any] = {"in": [], "out": [], "season": ""}
+    squad: list[int] = []
+    try:
+        from app.transfers import club_moves, club_squad_ids
+
+        if cid is not None:
+            moves = club_moves(int(cid), title)
+            squad = club_squad_ids(int(cid), title)
+    except Exception:
+        moves = {"in": [], "out": [], "season": ""}
+        squad = []
+    pids = pd.to_numeric(df.get("player_id"), errors="coerce")
+    if len(squad) >= 10:
+        part = df[pids.isin(squad)]
+    else:
+        leavers = {int(r["player_id"]) for r in (moves.get("out") or []) if r.get("player_id")}
+        arrivals = {int(r["player_id"]) for r in (moves.get("in") or []) if r.get("player_id")}
+        if leavers:
+            part = part[~pids.loc[part.index].isin(leavers)]
+        extra = df[pids.isin(arrivals)]
+        if not extra.empty:
+            part = pd.concat([part, extra]).drop_duplicates(subset=["player_id"])
+    if part.empty:
+        raise KeyError(token)
+    title = club_display(title)
+    ordered = part.sort_values(["gap_pct", "true_value"], ascending=[True, False], na_position="last")
+    items = [card(row) for _, row in ordered.iterrows()]
+    for item in items:
+        item["club"] = title
+        if href and title != "Kulüpsüz":
+            item["club_href"] = href
+    cheap = [x for x in items if x.get("direction") == "dusuk"]
+    rich = [x for x in items if x.get("direction") == "yuksek"]
+    even = [x for x in items if x.get("direction") == "denge"]
+    true_sum = float(pd.to_numeric(part.get("true_value"), errors="coerce").fillna(0).sum())
+    tm_sum = float(pd.to_numeric(part.get("market_value_in_eur"), errors="coerce").fillna(0).sum())
+    return json_safe(
+        {
+            "id": key,
+            "name": title,
+            "league_id": lid,
+            "league": league_name,
+            "href": href,
+            "club_id": None if cid != cid else cid,
+            "players": int(len(part)),
+            "true_label": format_eur(true_sum),
+            "tm_label": format_eur(tm_sum),
+            "cheap": cheap,
+            "rich": rich,
+            "even": even,
+            "items": items,
+            "transfers": moves,
+        }
+    )
+
+
+def compare_pack(left_id: int, right_id: int) -> dict:
+    left = player_detail(int(left_id), live=True)
+    right = player_detail(int(right_id), live=True)
+    return json_safe(
+        {
+            "left": left,
+            "right": right,
+            "verdict": compare_verdict(left, right),
+        }
+    )
+
+
+def calibration_pack() -> dict:
+    df = _catalog().copy()
+    liquid = df[
+        df["true_value"].notna()
+        & df["gap_pct"].notna()
+        & (df["minutes_365"].fillna(0) >= 700)
+        & (df["age"].fillna(99).between(18, 34))
+    ]
+    cheap = liquid[liquid["gap_pct"] <= -12].sort_values("gap_pct").head(12)
+    rich = liquid[liquid["gap_pct"] >= 12].sort_values("gap_pct", ascending=False).head(12)
+    bands = []
+    for lo, hi, title in ((16, 21, "21 yaş ve altı"), (22, 26, "22–26"), (27, 31, "27–31"), (32, 38, "32+")):
+        part = liquid[liquid["age"].fillna(0).between(lo, hi)]
+        if part.empty:
+            continue
+        gap = pd.to_numeric(part["gap_pct"], errors="coerce")
+        bands.append(
+            {
+                "title": title,
+                "n": int(len(part)),
+                "median_gap": float(gap.median()) if gap.notna().any() else None,
+                "cheap": int((gap <= -12).sum()),
+                "rich": int((gap >= 12).sum()),
+            }
+        )
+    leagues_out = []
+    for code, part in liquid.groupby(liquid["league_id"].astype("string")):
+        gap = pd.to_numeric(part["gap_pct"], errors="coerce")
+        if gap.notna().sum() < 8:
+            continue
+        leagues_out.append(
+            {
+                "id": str(code),
+                "name": LEAGUE_NAMES.get(str(code), str(code)),
+                "n": int(len(part)),
+                "median_gap": float(gap.median()),
+                "cheap": int((gap <= -12).sum()),
+                "rich": int((gap >= 12).sum()),
+            }
+        )
+    leagues_out.sort(key=lambda r: abs(r["median_gap"] or 0), reverse=True)
+    deals = []
+    try:
+        from app.transfers import desk
+
+        desk_pack = desk(refresh=False)
+        for deal in (desk_pack.get("deals") or [])[:16]:
+            deals.append(
+                {
+                    "name": deal.get("name"),
+                    "club": deal.get("club"),
+                    "fee_label": deal.get("fee_label"),
+                    "tm_label": deal.get("tm_label"),
+                    "true_label": deal.get("true_label"),
+                    "verdict": deal.get("verdict"),
+                    "headline": deal.get("headline"),
+                    "href": deal.get("href"),
+                }
+            )
+    except Exception:
+        deals = []
+    eng = engine()
+    meta = dict(eng.meta) if eng and eng.meta else {}
+    peak = liquid[
+        liquid["highest_market_value_in_eur"].fillna(0) > liquid["market_value_in_eur"].fillna(0) * 1.35
+    ].sort_values("highest_market_value_in_eur", ascending=False).head(10)
+    return json_safe(
+        {
+            "counts": {
+                "catalog": int(len(df)),
+                "liquid": int(len(liquid)),
+                "cheap": int((liquid["gap_pct"] <= -12).sum()),
+                "rich": int((liquid["gap_pct"] >= 12).sum()),
+            },
+            "cheap": [card(r) for _, r in cheap.iterrows()],
+            "rich": [card(r) for _, r in rich.iterrows()],
+            "bands": bands,
+            "leagues": leagues_out[:12],
+            "deals": deals,
+            "cooled": [card(r) for _, r in peak.iterrows()],
+            "meta": {
+                "mae": meta.get("mae") or meta.get("median_ae") or meta.get("error"),
+                "n_train": meta.get("n_train") or meta.get("rows") or meta.get("n"),
+                "updated": meta.get("trained_at") or meta.get("updated_at"),
+            },
+            "note": (
+                "Aurea geçmişte saklanan bir tahmin defteri tutmaz. "
+                "Bu sayfa bugünkü Aurea değeri ile bugünkü etiketi, kariyer tepesini ve "
+                "Süper Lig gelen bedellerini yan yana koyar. "
+                "Etiket geçmişi oyuncu dosyasındaki eğride okunur."
+            ),
         }
     )

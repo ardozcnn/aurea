@@ -148,6 +148,49 @@ def _normal_market_value(value: Any) -> int | None:
     return int(round(amount))
 
 
+_OVERLAY_MEM: dict[str, Any] | None = None
+_OVERLAY_AT = 0.0
+
+
+def club_overlay_get() -> dict[str, Any]:
+    global _OVERLAY_MEM, _OVERLAY_AT
+    if _OVERLAY_MEM is not None and (time.time() - _OVERLAY_AT) < 45:
+        return _OVERLAY_MEM
+    raw = _get_cache("club-overlay:v1")
+    _OVERLAY_MEM = raw if isinstance(raw, dict) else {}
+    _OVERLAY_AT = time.time()
+    return _OVERLAY_MEM
+
+
+def club_overlay_put(
+    player_id: Any,
+    *,
+    club_id: Any = None,
+    club_name: str = "",
+    league_id: str = "",
+) -> None:
+    global _OVERLAY_MEM, _OVERLAY_AT
+    try:
+        pid = int(player_id)
+    except (TypeError, ValueError):
+        return
+    pack = dict(club_overlay_get())
+    cid = None
+    try:
+        if club_id is not None and club_id == club_id:
+            cid = int(float(club_id))
+    except (TypeError, ValueError):
+        cid = None
+    pack[str(pid)] = {
+        "club_id": cid,
+        "club": str(club_name or "").strip(),
+        "league_id": str(league_id or "").strip(),
+    }
+    _OVERLAY_MEM = pack
+    _OVERLAY_AT = time.time()
+    _set_cache("club-overlay:v1", pack, ttl=30 * 24 * 3600)
+
+
 def _player_id_from_href(href: str | None) -> str | None:
     if not href:
         return None
@@ -258,6 +301,16 @@ def _scrape_profile(player_id: str) -> dict:
     position = info.get("Position") or ""
     club_el = soup.select_one(".data-header__club a") or soup.select_one(".data-header__club")
     club_name = (club_el.get_text(" ", strip=True) if club_el else "") or info.get("Current club") or info.get("Güncel kulüp")
+    club_href = ""
+    if club_el and club_el.name == "a":
+        club_href = club_el.get("href") or ""
+    else:
+        link = soup.select_one(".data-header__club a")
+        club_href = (link.get("href") if link else "") or ""
+    club_id = None
+    found_club = re.search(r"/verein/(\d+)", club_href)
+    if found_club:
+        club_id = int(found_club.group(1))
     contract = info.get("Contract expires") or info.get("Sözleşme")
     league_el = soup.select_one("a.data-header__league-link") or soup.select_one(".data-header__league")
     league_name = league_el.get_text(" ", strip=True) if league_el else None
@@ -278,7 +331,7 @@ def _scrape_profile(player_id: str) -> dict:
         "position": {"main": position, "other": []},
         "foot": (info.get("Foot") or info.get("Ayak") or "").lower() or None,
         "club": {
-            "id": None,
+            "id": club_id,
             "name": club_name,
             "contractExpires": contract,
         },
@@ -402,10 +455,11 @@ def _market_history(player_id: str) -> tuple[int | None, list[dict]]:
         with _client() as client:
             response = client.get(url, headers=headers)
             if response.status_code >= 400:
-                return None, []
-            data = response.json()
+                data = {}
+            else:
+                data = response.json()
     except (httpx.HTTPError, json.JSONDecodeError):
-        return None, []
+        data = {}
     series = data.get("list") or []
     history = []
     for point in series:
@@ -419,7 +473,43 @@ def _market_history(player_id: str) -> tuple[int | None, list[dict]]:
             }
         )
     current = history[-1]["marketValue"] if history else None
+    if len(history) < 2:
+        scraped = _scrape_value_curve(player_id)
+        if scraped:
+            history = scraped
+            current = history[-1]["marketValue"] if history else current
     return current, history
+
+
+def _scrape_value_curve(player_id: str) -> list[dict]:
+    try:
+        html = _get_html(f"/x/marktwertverlauf/spieler/{player_id}")
+    except Exception:
+        return []
+    soup = BeautifulSoup(html, "lxml")
+    rows: list[dict] = []
+    table = soup.select_one("table.items")
+    if table is None:
+        return []
+    for tr in table.select("tbody tr"):
+        tds = tr.select("td")
+        if len(tds) < 2:
+            continue
+        date_raw = tds[0].get_text(" ", strip=True)
+        value = None
+        for td in reversed(tds):
+            value = parse_euro(td.get_text(" ", strip=True))
+            if value:
+                break
+        if not value:
+            continue
+        iso = None
+        found = re.search(r"(\d{2})[./](\d{2})[./](\d{4})", date_raw)
+        if found:
+            iso = f"{found.group(3)}-{found.group(2)}-{found.group(1)}"
+        rows.append({"date": iso, "marketValue": value, "clubName": "", "age": None})
+    rows.reverse()
+    return rows[-24:]
 
 
 def player_bundle(player_id: int | str, fresh: bool = True) -> dict:

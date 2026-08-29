@@ -16,6 +16,7 @@ from app.live_tm import (
     _player_id_from_href,
     _scrape_injuries,
     _set_cache,
+    club_overlay_put,
     parse_euro,
 )
 from app.money import format_eur
@@ -74,6 +75,36 @@ def _num(value: Any, default: float = 0.0) -> float:
         return n
     except (TypeError, ValueError):
         return default
+
+
+def _season_in_title(title: str, season: int) -> bool:
+    raw = (title or "").lower()
+    found = re.findall(r"(\d{2})\s*/\s*(\d{2})", raw)
+    if found:
+        yy = f"{season % 100:02d}"
+        nxt = f"{(season + 1) % 100:02d}"
+        return any(a == yy and b == nxt for a, b in found)
+    if str(season) in raw and str(season + 1) in raw:
+        return True
+    return not bool(re.search(r"20\d{2}|\d{2}\s*/\s*\d{2}", raw))
+
+
+def _is_arrivals(title: str) -> bool:
+    t = (title or "").lower()
+    return any(w in t for w in ("arrival", "gelen", "zugänge", "zugaenge", "zugange", "arrivals"))
+
+
+def _is_departures(title: str) -> bool:
+    t = (title or "").lower()
+    return any(w in t for w in ("departure", "giden", "abgänge", "abgaenge", "abgang", "departures"))
+
+
+def _fee_listed(kind: str, fee: int | None) -> bool:
+    if kind in {"skip", "belirsiz"}:
+        return False
+    if fee is None and kind != "bedelsiz":
+        return False
+    return True
 
 
 def _parse_fee(text: str) -> tuple[str, int | None]:
@@ -171,7 +202,7 @@ def _scrape_season(season: int) -> dict[str, Any]:
                 continue
             fee_text = tds[-1].get_text(" ", strip=True)
             kind, fee = _parse_fee(fee_text)
-            if kind == "skip":
+            if not _fee_listed(kind, fee):
                 continue
             left = ""
             for td in tds:
@@ -251,7 +282,7 @@ def _scrape_latest_feed() -> tuple[dict[int, str], list[dict[str, Any]]]:
         if not fee_text and tds:
             fee_text = tds[-1].get_text(" ", strip=True)
         kind, fee = _parse_fee(fee_text)
-        if kind == "skip":
+        if not _fee_listed(kind, fee):
             continue
         clubs: list[str] = []
         for link in tr.select("a"):
@@ -618,7 +649,16 @@ def _enrich(deal: dict[str, Any], with_injury: bool) -> dict[str, Any]:
         out["injury"] = {"days": 0, "missed": 0, "open": False, "serious": [], "recent": []}
     judged = _analyze(out)
     out.update(judged)
-    out["href"] = f"#/oyuncu/{out['player_id']}" if extra.get("player_id") else f"#/ara?q={out.get('name') or ''}"
+    pid = extra.get("player_id") or out.get("player_id")
+    from app.slugs import player_path
+
+    out["href"] = player_path(pid, out.get("name")) if pid else f"/ara?q={out.get('name') or ''}"
+    tm = extra.get("tm_stored") or out.get("tm_value") or deal.get("tm_value")
+    if tm:
+        out["tm_value"] = tm
+        out["tm_label"] = format_eur(tm)
+    else:
+        out["tm_label"] = out.get("tm_label") or "—"
     return out
 
 
@@ -708,4 +748,211 @@ def desk(*, refresh: bool = False) -> dict[str, Any]:
         "note": "",
     }
     _set_cache(key, payload, ttl=_DESK_TTL)
+    return json_safe(payload)
+
+
+def _direct_rows(table):
+    body = table.find("tbody") if table is not None else None
+    if body is None:
+        return []
+    return [tr for tr in body.find_all("tr", recursive=False)]
+
+
+def _main_move_table(box):
+    return box.select_one("table.items") or box.select_one("div.responsive-table > table")
+
+
+def _row_player(row) -> tuple[str, str | None]:
+    fallback: tuple[str, str | None] | None = None
+    for link in row.select("a"):
+        href = link.get("href") or ""
+        if "/spieler/" not in href:
+            continue
+        parent = " ".join(link.parent.get("class") or []) if link.parent else ""
+        if "show-for-small" in parent:
+            continue
+        name = (link.get("title") or link.get_text(" ", strip=True) or "").strip()
+        if not name:
+            continue
+        if "/profil/spieler/" in href:
+            return name, href
+        if fallback is None:
+            fallback = (name, href)
+    return fallback or ("", None)
+
+
+def _parse_move_table(table, club: str, side: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for tr in _direct_rows(table):
+        tds = tr.find_all("td", recursive=False) or tr.select("td")
+        if len(tds) < 3:
+            continue
+        name, href = _row_player(tr)
+        pid = _player_id_from_href(href)
+        if not name or name.lower() in {"player", "oyuncu"}:
+            continue
+        key = pid or name
+        if key in seen:
+            continue
+        seen.add(key)
+        fee_text = tds[-1].get_text(" ", strip=True)
+        kind, fee = _parse_fee(fee_text)
+        if not _fee_listed(kind, fee):
+            continue
+        other = ""
+        for link in tr.find_all("a"):
+            h = link.get("href") or ""
+            if "/verein/" not in h:
+                continue
+            title = (link.get("title") or link.get_text(" ", strip=True) or "").strip()
+            if title and title.lower() != (club or "").lower():
+                other = title
+                break
+        age = None
+        age_cell = tr.select_one(".alter-transfer-cell")
+        if age_cell is None and len(tds) >= 3:
+            age_cell = tds[2]
+        try:
+            age = int(re.sub(r"\D", "", age_cell.get_text() if age_cell else "") or 0) or None
+        except (ValueError, AttributeError):
+            age = None
+        if age is not None and not 15 <= age <= 50:
+            age = None
+        pid_i = int(pid) if pid else None
+        mw_el = tr.select_one(".mw-transfer-cell")
+        tm_val = parse_euro(mw_el.get_text(" ", strip=True)) if mw_el else None
+        if tm_val is None:
+            for td in tds[1:-1]:
+                txt = td.get_text(" ", strip=True)
+                if "€" not in txt:
+                    continue
+                parsed = parse_euro(txt)
+                if parsed:
+                    tm_val = parsed
+                    break
+        rows.append(
+            {
+                "player_id": pid_i,
+                "name": name,
+                "age": age,
+                "club": club,
+                "other": other,
+                "side": side,
+                "kind": kind,
+                "fee": fee,
+                "fee_label": format_eur(fee)
+                if fee
+                else ("Bedelsiz" if kind == "bedelsiz" else ("Kiralık" if kind == "kiralik" else "—")),
+                "tm_value": tm_val,
+                "tm_label": format_eur(tm_val) if tm_val else "—",
+                "href": f"/oyuncu/{pid_i}" if pid_i else f"/ara?q={name}",
+            }
+        )
+    return rows
+
+
+def club_squad_ids(club_id: int, name: str = "") -> list[int]:
+    season = _season_id()
+    key = f"clubsquad:{int(club_id)}:{season}:v1"
+    cached = _get_cache(key)
+    if isinstance(cached, list) and cached:
+        return [int(x) for x in cached]
+    from app.slugs import slugify
+
+    slug = slugify(name) or "club"
+    paths = [
+        f"/{slug}/kader/verein/{int(club_id)}/saison_id/{season}/plus/1",
+        f"/{slug}/kader/verein/{int(club_id)}/saison_id/{season}",
+        f"/kader/verein/{int(club_id)}/saison_id/{season}",
+    ]
+    ids: list[int] = []
+    seen: set[int] = set()
+    for path in paths:
+        try:
+            html = _get_html(path)
+            soup = BeautifulSoup(html, "lxml")
+            for link in soup.select("table.items a[href*='spieler']"):
+                pid = _player_id_from_href(link.get("href") or "")
+                if not pid:
+                    continue
+                num = int(pid)
+                if num in seen:
+                    continue
+                seen.add(num)
+                ids.append(num)
+            if len(ids) >= 8:
+                break
+        except Exception:
+            continue
+    if ids:
+        _set_cache(key, ids, ttl=6 * 3600)
+    return ids
+
+
+def club_moves(club_id: int, name: str = "") -> dict[str, Any]:
+    season = _season_id()
+    key = f"clubmoves:{int(club_id)}:{season}:v6"
+    cached = _get_cache(key)
+    if isinstance(cached, dict) and (cached.get("in") or cached.get("empty")):
+        return cached
+    from app.slugs import slugify
+
+    slug = slugify(name) or "club"
+    incoming: list[dict[str, Any]] = []
+    outgoing: list[dict[str, Any]] = []
+    paths = [
+        f"/{slug}/transfers/verein/{int(club_id)}/saison_id/{season}/plus/1",
+        f"/transfers/verein/{int(club_id)}/saison_id/{season}/plus/1",
+        f"/{slug}/transfers/verein/{int(club_id)}/plus/1?saison_id={season}",
+    ]
+    for path in paths:
+        try:
+            html_key = f"clubmoves-html:{int(club_id)}:{season}:{path}:v4"
+            html = _get_cache(html_key)
+            if not isinstance(html, str) or len(html) < 400:
+                html = _get_html(path)
+                _set_cache(html_key, html, ttl=6 * 3600)
+            soup = BeautifulSoup(html, "lxml")
+            for box in soup.select("div.box"):
+                head = box.select_one("h2")
+                title = head.get_text(" ", strip=True) if head else ""
+                if not _season_in_title(title, season):
+                    continue
+                table = _main_move_table(box)
+                if table is None:
+                    continue
+                if _is_arrivals(title):
+                    incoming.extend(_parse_move_table(table, name, "in"))
+                elif _is_departures(title):
+                    outgoing.extend(_parse_move_table(table, name, "out"))
+            if incoming or outgoing:
+                break
+        except Exception:
+            incoming = []
+            outgoing = []
+    judged_in = []
+    for row in incoming[:40]:
+        pid = row.get("player_id")
+        if pid:
+            club_overlay_put(pid, club_id=club_id, club_name=name)
+            try:
+                judged_in.append(_enrich(row, False))
+                continue
+            except Exception:
+                pass
+        judged_in.append(row)
+    judged_out = []
+    for row in outgoing[:40]:
+        pid = row.get("player_id")
+        if pid:
+            club_overlay_put(pid, club_name=str(row.get("other") or ""))
+        judged_out.append(row)
+    payload = {
+        "season": f"{season}/{str(season + 1)[2:]}",
+        "in": judged_in,
+        "out": judged_out,
+        "empty": not judged_in,
+    }
+    _set_cache(key, payload, ttl=30 * 60 if payload["empty"] else 6 * 3600)
     return json_safe(payload)
