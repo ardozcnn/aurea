@@ -34,6 +34,17 @@ Tarayıcı: [http://127.0.0.1:8787](http://127.0.0.1:8787)
 
 İlk açılışta Transfermarkt açık veri seti iner ve değer motoru bir kez eğitilir. Sonraki açılışlar kayıtlı motoru kullanır.
 
+## Yayın (Render)
+
+GitHub Pages bu uygulamayı çalıştırmaz. Ücretsiz yayın için [Render](https://render.com) kullanılır.
+
+1. [render.com](https://render.com) hesabı açın ve GitHub’u bağlayın.
+2. **New → Web Service** → `ardozcnn/aurea` deposunu seçin.
+3. Branch: `main`. Build: `pip install -r requirements.txt`. Start: `python -m app`.
+4. Deploy bitince Render bir adres verir: `https://….onrender.com`. Siteye o adresten girilir.
+
+`PORT` ortam değişkeni varsa sunucu `0.0.0.0` dinler (Render bunu kendisi yazar). Ücretsiz katmanda servis uykuya yatar; ilk açılış 30–60 saniye sürebilir. İlk kurulumda model eğitimi bellek sınırına takılabilir.
+
 Fantezi motoru varsayılan olarak bu deponun kökündedir (`src/`). Ayrı bir klasör kullanıyorsanız:
 
 ```bat
