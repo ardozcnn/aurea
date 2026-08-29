@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Aurea</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&family=Outfit:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css?v=24" />
+</head>
+<body>
+  <header class="nav">
+    <a class="logo" href="#/"><i></i>Aurea</a>
+    <form class="nav-search" id="global-search" autocomplete="off">
+      <input id="gq" type="search" placeholder="Oyuncu ara" />
+    </form>
+    <nav class="links">
+      <a href="#/">Keşif</a>
+      <a href="#/superlig">Süper Lig</a>
+      <a href="#/scout">Scout</a>
+      <a href="#/piyasa">Oyuncular</a>
+      <a href="#/ligler">Ligler</a>
+      <a href="#/fantezi" class="nav-fx">TFF Fantezi Lig</a>
+    </nav>
+  </header>
+  <div id="drop" class="drop hidden"></div>
+  <main id="view"></main>
+  <div id="boot" class="boot hidden" aria-hidden="true">
+    <div class="boot-card">
+      <p class="kicker">Aurea</p>
+      <h2>Veri ambarı yükleniyor</h2>
+      <p id="boot-msg" class="sub">Transfermarkt evreni ve değer motoru hazırlanıyor.</p>
+      <div class="progress"><i id="boot-bar"></i></div>
+      <p id="boot-pct" class="sub">%0</p>
+      <button id="boot-btn" class="btn" type="button">Başlat</button>
+    </div>
+  </div>
+  <script src="/static/app.js?v=24"></script>
+</body>
+</html>

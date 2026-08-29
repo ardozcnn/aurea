@@ -1,0 +1,1353 @@
+"""TFF Fantezi Lig motorunu web API’ye bağlar. PNG üretmez."""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import sys
+import threading
+from datetime import datetime, timezone
+from typing import Any
+
+from app.config import FANTASY_CACHE, FANTASY_ROOT
+from app.store import json_safe
+
+_LOCK = threading.Lock()
+_THREAD: threading.Thread | None = None
+_STATE: dict[str, Any] = {
+    "phase": "idle",
+    "message": "Kadro henüz hesaplanmadı.",
+    "progress": 0.0,
+    "error": None,
+    "updated_at": None,
+}
+_LAST: dict[str, Any] | None = None
+_SESSION: dict[str, Any] | None = None
+_PLAYER_KEYS = (
+    "player",
+    "display_name",
+    "team",
+    "position",
+    "price_m",
+    "projected_pts",
+    "pts_if_plays",
+    "play_probability",
+    "fixture_opponent",
+    "fixture_home",
+    "reason",
+    "availability",
+    "avail_news",
+    "avail_pct",
+    "data_src",
+    "tff_points",
+    "tff_form",
+    "selected_by",
+    "rating",
+    "ppm",
+    "tff_ppm",
+    "selection_pts",
+)
+
+def _league_id() -> str:
+    return (os.environ.get("TFF_LEAGUE_ID") or "1").strip() or "1"
+
+
+def _account_paths(league_id: str) -> list[str]:
+    q = "league-id=" + league_id
+    return [
+        f"users/me?{q}",
+        "users/me",
+        f"fantasy-team?{q}",
+        f"fantasy-team?{q}&mode=editable",
+        f"fantasy-team?{q}&view=editable",
+        f"fantasy-team/chips?{q}",
+        f"fantasy-team/history?{q}",
+        f"fantasy-team/points?{q}",
+        f"leagues/mine-v2?{q}",
+        "leagues/mine-v2",
+        f"leagues/dashboard?{q}",
+        f"leagues/standings?{q}",
+        f"leagues/detail?{q}",
+        f"projection/fantasy-team?{q}",
+        f"projection/stats/my-team?{q}",
+        f"projection/stats/dashboard?{q}",
+        f"projection/stats/gameweek-history?{q}",
+        f"projection/stats/points?{q}",
+        f"projection/stats/entry?{q}",
+        f"projection/stats/user?{q}",
+        f"users/me/fantasy-team?{q}",
+        f"users/me/history?{q}",
+        f"me/team?{q}",
+    ]
+
+_CARD_EXPLAIN = {
+    "Dört Dörtlük Kaptan": "Kaptanın puanı dört katına çıkar.",
+    "Tripleks Kaptan": "Kaptanın puanı üç katına çıkar.",
+    "Tüm Takım Sahaya": "Yedekteki oyuncular da bu hafta puan alır.",
+    "Hücum": "Hücum kartı bütçe ve dizilişi gevşetir.",
+    "Limitsiz Bütçe": "Transferde bütçe tavanı kalkar.",
+}
+
+_KNOWN_CHIPS = (
+    "Tripleks Kaptan",
+    "Dört Dörtlük Kaptan",
+    "Tüm Takım Sahaya",
+    "Hücum",
+    "Limitsiz Bütçe",
+)
+_CHIP_ALIAS = {
+    "triplecaptain": "Tripleks Kaptan",
+    "triplekskaptan": "Tripleks Kaptan",
+    "tripleks": "Tripleks Kaptan",
+    "3c": "Tripleks Kaptan",
+    "3xc": "Tripleks Kaptan",
+    "quadcaptain": "Dört Dörtlük Kaptan",
+    "dortdortlukkaptan": "Dört Dörtlük Kaptan",
+    "skipperup": "Dört Dörtlük Kaptan",
+    "4c": "Dört Dörtlük Kaptan",
+    "teamboost": "Tüm Takım Sahaya",
+    "tumtakimsahaya": "Tüm Takım Sahaya",
+    "benchboost": "Tüm Takım Sahaya",
+    "bboost": "Tüm Takım Sahaya",
+    "attackchip": "Hücum",
+    "attack": "Hücum",
+    "hücum": "Hücum",
+    "hucum": "Hücum",
+    "unlimitedbudget": "Limitsiz Bütçe",
+    "limitsizbutce": "Limitsiz Bütçe",
+    "limitless": "Limitsiz Bütçe",
+}
+_SKIP_WALK = {
+    "players",
+    "picks",
+    "elements",
+    "squad",
+    "fixtures",
+    "clubs",
+    "sponsors",
+    "predictions",
+}
+_POINT_KEYS = (
+    "overallpoints",
+    "totalpoints",
+    "seasonpoints",
+    "activepoints",
+    "aktifpuan",
+    "aktifpuani",
+    "currentpoints",
+    "seasonscore",
+    "overallscore",
+    "totalscores",
+    "pointstotal",
+)
+_GW_KEYS = (
+    "gameweekpoints",
+    "matchweekpoints",
+    "eventpoints",
+    "roundpoints",
+    "gwpoints",
+    "weekpoints",
+    "currenteventpoints",
+    "thisweekpoints",
+    "latestpoints",
+    "lastgameweekpoints",
+)
+_RANK_KEYS = (
+    "overallrank",
+    "globalrank",
+    "generalranking",
+    "overallranking",
+    "seasonrank",
+    "activerank",
+    "totalrank",
+)
+_FOLD_MAP = str.maketrans(
+    {
+        "ç": "c",
+        "Ç": "c",
+        "ğ": "g",
+        "Ğ": "g",
+        "ı": "i",
+        "İ": "i",
+        "I": "i",
+        "ö": "o",
+        "Ö": "o",
+        "ş": "s",
+        "Ş": "s",
+        "ü": "u",
+        "Ü": "u",
+    }
+)
+_RATIO_RE = re.compile(r"^\s*(\d{1,2})\s*/\s*(\d{1,2})\s*$")
+
+
+def _fold_token(word: str) -> str:
+    return str(word or "").translate(_FOLD_MAP).casefold()
+
+
+def _tidy_name(text: str) -> str:
+    words = [w for w in re.split(r"\s+", str(text or "").strip()) if w]
+    if not words:
+        return ""
+    n = len(words)
+    for length in range(n // 2, 0, -1):
+        left = [_fold_token(w) for w in words[:length]]
+        mid = [_fold_token(w) for w in words[length : 2 * length]]
+        if left == mid:
+            chosen = []
+            for a, b in zip(words[:length], words[length : 2 * length]):
+                if sum(ord(ch) > 127 for ch in b) > sum(ord(ch) > 127 for ch in a):
+                    chosen.append(b)
+                else:
+                    chosen.append(a)
+            return _tidy_name(" ".join(chosen + words[2 * length :]))
+    kept: list[str] = []
+    for word in words:
+        if kept:
+            fa = _fold_token(kept[-1])
+            fb = _fold_token(word)
+            same = fa == fb
+            short_dup = (
+                fa
+                and fb
+                and (fa.startswith(fb) or fb.startswith(fa))
+                and abs(len(fa) - len(fb)) <= 2
+                and min(len(fa), len(fb)) >= 3
+            )
+            if same or short_dup:
+                richer = sum(ord(ch) > 127 for ch in word) > sum(ord(ch) > 127 for ch in kept[-1])
+                longer = len(fb) > len(fa)
+                if richer or longer:
+                    kept[-1] = word
+                continue
+        kept.append(word)
+    return " ".join(kept)
+
+
+def _stamp() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _set(*, phase: str | None = None, message: str | None = None, progress: float | None = None, error: Any = False) -> None:
+    with _LOCK:
+        if phase is not None:
+            _STATE["phase"] = phase
+        if message is not None:
+            _STATE["message"] = message
+        if progress is not None:
+            _STATE["progress"] = float(max(0.0, min(1.0, progress)))
+        if error is not False:
+            _STATE["error"] = error
+        _STATE["updated_at"] = _stamp()
+
+
+def _ensure_path() -> None:
+    if not FANTASY_ROOT.exists():
+        raise FileNotFoundError(f"Fantezi Lig klasörü yok: {FANTASY_ROOT}")
+    root = str(FANTASY_ROOT)
+    if root not in sys.path:
+        sys.path.insert(0, root)
+
+
+def status() -> dict[str, Any]:
+    with _LOCK:
+        snap = dict(_STATE)
+        snap["available"] = FANTASY_ROOT.exists()
+        snap["has_squad"] = _LAST is not None
+        snap["running"] = bool(_THREAD and _THREAD.is_alive())
+        snap["logged_in"] = bool(_SESSION and _SESSION.get("ok"))
+        return snap
+
+
+def last_payload() -> dict[str, Any] | None:
+    with _LOCK:
+        if not _LAST:
+            return None
+        payload = json_safe(_LAST)
+    return _sanitize_payload(_with_formation_xi(payload))
+
+
+def _tidy_player_dict(row: Any) -> Any:
+    if not isinstance(row, dict):
+        return row
+    for key in ("display_name", "player"):
+        if row.get(key):
+            row[key] = _tidy_name(str(row[key]))
+    return row
+
+
+def _sanitize_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    result = payload.get("result")
+    if isinstance(result, dict):
+        for key in ("squad", "xi", "bench"):
+            rows = result.get(key) or []
+            result[key] = [_tidy_player_dict(row) for row in rows]
+        if isinstance(result.get("captain"), dict):
+            result["captain"] = _tidy_player_dict(result["captain"])
+        payload["result"] = result
+    leaders = payload.get("leaders")
+    if isinstance(leaders, dict):
+        payload["leaders"] = {
+            pos: [_tidy_player_dict(row) for row in (rows or [])]
+            for pos, rows in leaders.items()
+        }
+    watch = payload.get("watch")
+    if isinstance(watch, list) and watch:
+        payload["watch"] = [_tidy_player_dict(row) for row in watch]
+    else:
+        squad_names = set()
+        if isinstance(result, dict):
+            for row in (result.get("squad") or []) + (result.get("xi") or []):
+                if isinstance(row, dict):
+                    squad_names.add(_tidy_name(str(row.get("display_name") or row.get("player") or "")))
+        filled = []
+        for pos in ("FW", "MF", "DF", "GK"):
+            for row in (payload.get("leaders") or {}).get(pos) or []:
+                name = _tidy_name(str(row.get("display_name") or row.get("player") or ""))
+                if name and name not in squad_names:
+                    filled.append(row)
+                if len(filled) >= 6:
+                    break
+            if len(filled) >= 6:
+                break
+        payload["watch"] = filled
+    card = dict(payload.get("manager_card") or {})
+    card["why"] = _card_sentence(card)
+    card.pop("remaining", None)
+    card.pop("threshold", None)
+    card.pop("card_state", None)
+    payload["manager_card"] = card
+    payload["account"] = account_public() or {}
+    payload["xi_table"] = _xi_table(result if isinstance(result, dict) else {})
+    payload["analysis"] = _analysis({}, payload)
+    return payload
+
+
+def _xi_table(result: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = []
+    for kind, group in (("XI", result.get("xi") or []), ("Yedek", result.get("bench") or [])):
+        for player in group:
+            if not isinstance(player, dict):
+                continue
+            opp = player.get("fixture_opponent") or ""
+            venue = ""
+            if opp:
+                venue = "vs " + str(opp)
+            rows.append(
+                {
+                    "role": kind,
+                    "name": _tidy_name(str(player.get("display_name") or player.get("player") or "")),
+                    "team": player.get("team") or "",
+                    "position": player.get("position") or "",
+                    "pts": player.get("projected_pts"),
+                    "pts_if_plays": player.get("pts_if_plays"),
+                    "fixture": venue,
+                    "price_m": player.get("price_m"),
+                }
+            )
+    return rows
+
+
+def account_public() -> dict[str, Any] | None:
+    with _LOCK:
+        if not _SESSION:
+            return None
+        out = {k: v for k, v in _SESSION.items() if k not in {"tokens", "password"}}
+        return json_safe(out)
+
+
+def _slim_player(row: dict[str, Any]) -> dict[str, Any]:
+    out = {key: row.get(key) for key in _PLAYER_KEYS if key in row}
+    for key in ("display_name", "player"):
+        if key in out and out[key]:
+            out[key] = _tidy_name(str(out[key]))
+    return out
+
+
+def _num(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        text = value.strip().replace(",", ".")
+        if re.fullmatch(r"-?\d+(\.\d+)?", text):
+            return float(text)
+    return None
+
+
+def _norm_key(text: str) -> str:
+    return _fold_token(text).replace(" ", "").replace("-", "").replace("_", "")
+
+
+def _unwrap(obj: Any) -> Any:
+    if not isinstance(obj, dict):
+        return obj
+    inner = obj.get("data")
+    status = obj.get("status")
+    keys = set(obj.keys())
+    envelope = keys <= {"status", "data", "errors", "error", "message", "meta", "ok"}
+    if inner is not None and (status in (True, "ok", "success", 1, "OK") or envelope):
+        if isinstance(inner, dict):
+            return _unwrap(inner)
+        return inner
+    return obj
+
+
+def _looks_player(obj: dict[str, Any]) -> bool:
+    keys = {_norm_key(str(k)) for k in obj}
+    priced = bool({"cost", "price", "nowcost", "sellingprice"} & keys)
+    placed = bool({"position", "elementtype", "positionid"} & keys)
+    return (priced and placed) or ("webname" in keys and placed)
+
+
+def _deep_num(obj: Any, names: tuple[str, ...], *, cap: float | None = None) -> float | None:
+    hits: list[tuple[int, float]] = []
+    want = {_norm_key(n) for n in names}
+
+    def walk(node: Any, depth: int) -> None:
+        if depth > 8 or node is None:
+            return
+        if isinstance(node, dict):
+            if _looks_player(node):
+                return
+            for key, value in node.items():
+                lk = _norm_key(str(key))
+                if lk in _SKIP_WALK:
+                    continue
+                if lk in want:
+                    n = _num(value)
+                    if n is not None and (cap is None or n <= cap):
+                        hits.append((depth, n))
+                if isinstance(value, (dict, list)):
+                    walk(value, depth + 1)
+        elif isinstance(node, list):
+            for item in node[:28]:
+                walk(item, depth + 1)
+
+    walk(obj, 0)
+    if not hits:
+        return None
+    hits.sort(key=lambda row: row[0])
+    return hits[0][1]
+
+
+def _map_chip_name(raw: Any) -> str:
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    aliased = _CHIP_ALIAS.get(_norm_key(text))
+    if aliased:
+        return aliased
+    return text
+
+
+def _chip_item(raw: dict[str, Any]) -> dict[str, Any] | None:
+    name = _map_chip_name(
+        raw.get("name")
+        or raw.get("card")
+        or raw.get("title")
+        or raw.get("type")
+        or raw.get("chipType")
+        or raw.get("chip_type")
+        or raw.get("label")
+        or raw.get("chip")
+        or raw.get("joker")
+        or raw.get("code")
+        or raw.get("id")
+    )
+    played_list = raw.get("played_by_entry") or raw.get("playedByEntry") or raw.get("usageHistory")
+    used = _num(
+        raw.get("used")
+        or raw.get("usedCount")
+        or raw.get("timesUsed")
+        or raw.get("usageCount")
+        or raw.get("playedCount")
+        or raw.get("numberOfTimesPlayed")
+        or raw.get("uses")
+        or raw.get("playCount")
+        or raw.get("consumed")
+    )
+    if used is None and isinstance(played_list, list):
+        used = float(len(played_list))
+    played_flag = raw.get("played")
+    if used is None and isinstance(played_flag, bool) and played_flag:
+        used = 1.0
+    elif used is None:
+        used = _num(played_flag)
+    limit = _num(
+        raw.get("limit")
+        or raw.get("max")
+        or raw.get("quota")
+        or raw.get("maxCount")
+        or raw.get("maxUses")
+        or raw.get("allowed")
+        or raw.get("allowedUses")
+        or raw.get("number")
+        or raw.get("limitPerHalf")
+    )
+    remaining = _num(
+        raw.get("remaining")
+        or raw.get("left")
+        or raw.get("remainingCount")
+        or raw.get("remainingUses")
+        or raw.get("availableUses")
+        or raw.get("leftover")
+    )
+    status = _norm_key(
+        str(
+            raw.get("status_for_entry")
+            or raw.get("statusForEntry")
+            or raw.get("chipStatus")
+            or raw.get("state")
+            or ""
+        )
+    )
+    status_map = {
+        "available": (0, 2),
+        "availabletoplay": (0, 2),
+        "playable": (0, 2),
+        "active": (0, 2),
+        "played": (1, 2),
+        "used": (1, 2),
+        "unavailable": (2, 2),
+        "spent": (2, 2),
+    }
+    if status in status_map and used is None and remaining is None:
+        used, limit = (float(status_map[status][0]), float(limit if limit is not None else status_map[status][1]))
+        remaining = max(0.0, (limit or 2) - used)
+    for value in raw.values():
+        if isinstance(value, str):
+            match = _RATIO_RE.match(value.strip())
+            if match:
+                used = float(match.group(1)) if used is None else used
+                limit = float(match.group(2)) if limit is None else limit
+    if remaining is not None and remaining > 5:
+        remaining = None
+    if limit is None and remaining is not None and 0 <= remaining <= 2:
+        limit = 2.0
+    if remaining is None and used is not None and limit is not None:
+        remaining = max(0.0, limit - used)
+    if used is None and remaining is not None and limit is not None:
+        used = max(0.0, limit - remaining)
+    if limit is not None and (limit < 1 or limit > 5):
+        return None
+    if used is None and limit is None:
+        return None
+    label = str(name or "").strip()
+    if label.isdigit():
+        label = ""
+    low = label.lower()
+    if label and label not in _KNOWN_CHIPS and len(label.split()) >= 3 and not any(
+        w in low for w in ("kaptan", "kart", "hücum", "hucum", "bütçe", "butce", "triple", "sahaya")
+    ):
+        return None
+    return {
+        "name": label or "Kart",
+        "used": int(used or 0),
+        "limit": int(limit or 0),
+        "remaining": int(remaining if remaining is not None else max(0, int(limit or 0) - int(used or 0))),
+    }
+
+
+def _extract_chips(obj: Any, depth: int = 0) -> list[dict[str, Any]]:
+    found: list[dict[str, Any]] = []
+    if depth > 8 or obj is None:
+        return found
+    if isinstance(obj, dict):
+        if _looks_player(obj):
+            return found
+        for key, value in obj.items():
+            mapped = _CHIP_ALIAS.get(_norm_key(str(key)))
+            if mapped:
+                if isinstance(value, dict):
+                    item = _chip_item({**value, "name": mapped})
+                    if item:
+                        found.append(item)
+                elif isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= float(value) <= 2:
+                    found.append(
+                        {
+                            "name": mapped,
+                            "used": int(2 - float(value)),
+                            "limit": 2,
+                            "remaining": int(value),
+                        }
+                    )
+                elif isinstance(value, str):
+                    item = _chip_item({"name": mapped, "status_for_entry": value})
+                    if item:
+                        found.append(item)
+        item = _chip_item(obj)
+        looks_chip = any(
+            _norm_key(str(k)) in {"chip", "card", "joker", "booster", "used", "remaining", "quota", "chiptype"}
+            for k in obj.keys()
+        )
+        if item and (looks_chip or item.get("name") in _KNOWN_CHIPS or item.get("name") not in {"Kart"}):
+            if item.get("limit") or item.get("name") != "Kart":
+                found.append(item)
+        for key, value in obj.items():
+            lk = _norm_key(str(key))
+            if lk in _SKIP_WALK:
+                continue
+            if isinstance(value, (dict, list)):
+                found.extend(_extract_chips(value, depth + 1))
+    elif isinstance(obj, list):
+        for entry in obj[:40]:
+            if isinstance(entry, dict):
+                found.extend(_extract_chips(entry, depth + 1))
+            elif isinstance(entry, str) and _RATIO_RE.match(entry.strip()):
+                match = _RATIO_RE.match(entry.strip())
+                found.append(
+                    {
+                        "name": "Kart",
+                        "used": int(match.group(1)),
+                        "limit": int(match.group(2)),
+                        "remaining": max(0, int(match.group(2)) - int(match.group(1))),
+                    }
+                )
+    return found
+
+
+def _dedupe_chips(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_name: dict[str, dict[str, Any]] = {}
+    unnamed = []
+    for row in rows:
+        name = str(row.get("name") or "Kart").strip()
+        if name in {"Kart", ""}:
+            unnamed.append(row)
+            continue
+        prev = by_name.get(name)
+        if prev is None or int(row.get("limit") or 0) >= int(prev.get("limit") or 0):
+            by_name[name] = row
+    out = list(by_name.values())
+    if not out:
+        out = unnamed
+    return _label_chips(out)
+
+
+def _label_chips(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not rows:
+        return []
+    mapped = []
+    for row in rows:
+        item = dict(row)
+        item["name"] = _map_chip_name(item.get("name")) or item.get("name") or "Kart"
+        mapped.append(item)
+    named = [row for row in mapped if str(row.get("name") or "") not in {"Kart", ""}]
+    if named:
+        return named[:8]
+    if len(mapped) == len(_KNOWN_CHIPS) and all(int(r.get("limit") or 0) in {1, 2} for r in mapped):
+        labelled = []
+        for name, row in zip(_KNOWN_CHIPS, mapped):
+            item = dict(row)
+            item["name"] = name
+            labelled.append(item)
+        return labelled
+    return mapped[:8]
+
+
+def _chip_catalog(chips: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_name = {_map_chip_name(row.get("name")): row for row in chips}
+    out = []
+    for name in _KNOWN_CHIPS:
+        hit = by_name.get(name)
+        if hit:
+            out.append(
+                {
+                    "name": name,
+                    "used": int(hit.get("used") or 0),
+                    "limit": int(hit.get("limit") or 2),
+                    "remaining": int(
+                        hit.get("remaining")
+                        if hit.get("remaining") is not None
+                        else max(0, int(hit.get("limit") or 2) - int(hit.get("used") or 0))
+                    ),
+                    "known": True,
+                }
+            )
+        else:
+            out.append({"name": name, "used": None, "limit": 2, "remaining": None, "known": False})
+    return out
+
+
+def _used_from_chips(chips: list[dict[str, Any]], blobs: list[tuple[str, Any]]) -> list[dict[str, Any]]:
+    used = []
+    for chip in chips:
+        n = int(chip.get("used") or 0)
+        if n > 0:
+            used.append({"name": chip.get("name"), "count": n})
+    for _, data in blobs:
+        hist = _walk_history(data) if isinstance(data, (dict, list)) else []
+        for row in hist:
+            if row.get("card") or row.get("chip"):
+                used.append({"name": row.get("card") or row.get("chip"), "week": row.get("week"), "points": row.get("points")})
+    seen = set()
+    clean = []
+    for row in used:
+        key = (str(row.get("name")), row.get("week"), row.get("count"))
+        if key in seen:
+            continue
+        seen.add(key)
+        clean.append(row)
+    return clean[:24]
+
+
+def _walk_str(obj: Any, names: tuple[str, ...], depth: int = 0) -> str | None:
+    if depth > 6 or obj is None:
+        return None
+    want = {_norm_key(n) for n in names}
+    if isinstance(obj, dict):
+        if _looks_player(obj):
+            return None
+        for key, value in obj.items():
+            lk = _norm_key(str(key))
+            if lk in _SKIP_WALK:
+                continue
+            if lk in want and isinstance(value, str) and value.strip():
+                return value.strip()
+        for key, value in obj.items():
+            if _norm_key(str(key)) in _SKIP_WALK:
+                continue
+            hit = _walk_str(value, names, depth + 1)
+            if hit:
+                return hit
+    elif isinstance(obj, list):
+        for item in obj[:8]:
+            hit = _walk_str(item, names, depth + 1)
+            if hit:
+                return hit
+    return None
+
+
+def _walk_history(obj: Any, depth: int = 0) -> list[dict[str, Any]]:
+    if depth > 6 or obj is None:
+        return []
+    rows: list[dict[str, Any]] = []
+    if isinstance(obj, list) and obj and isinstance(obj[0], dict):
+        if _looks_player(obj[0]):
+            return []
+        for item in obj[:38]:
+            week = (
+                item.get("gameweek")
+                or item.get("matchweek")
+                or item.get("round")
+                or item.get("week")
+                or item.get("gw")
+                or item.get("event")
+            )
+            pts = (
+                item.get("points")
+                or item.get("totalPoints")
+                or item.get("gameweekPoints")
+                or item.get("matchweekPoints")
+                or item.get("score")
+                or item.get("gwPoints")
+                or item.get("eventPoints")
+            )
+            n = _num(pts)
+            if n is None:
+                continue
+            rows.append(
+                {
+                    "week": week,
+                    "points": n,
+                    "earned": _num(item.get("earned") or item.get("winnings")),
+                    "card": item.get("card") or item.get("chip") or item.get("activeChip"),
+                    "rank": _num(item.get("overallRank") or item.get("rank")),
+                }
+            )
+        if rows:
+            return rows
+    if isinstance(obj, dict):
+        if _looks_player(obj):
+            return []
+        for key, value in obj.items():
+            lk = _norm_key(str(key))
+            if lk in _SKIP_WALK:
+                continue
+            if "histor" in lk or lk in {"gameweeks", "weeks", "rounds", "events", "current", "past"}:
+                rows = _walk_history(value, depth + 1)
+                if rows:
+                    return rows
+        for key, value in obj.items():
+            if _norm_key(str(key)) in _SKIP_WALK:
+                continue
+            rows = _walk_history(value, depth + 1)
+            if rows:
+                return rows
+    return []
+
+
+def _person_name(blobs: list[tuple[str, Any]]) -> str | None:
+    for _, data in blobs:
+        name = _walk_str(data, ("teamname", "squadname", "entryname", "teamName"))
+        if name:
+            return name
+    for _, data in blobs:
+        if not isinstance(data, dict):
+            continue
+        first = data.get("name") or data.get("firstName") or data.get("first_name")
+        last = data.get("lastName") or data.get("surname") or data.get("last_name")
+        if isinstance(first, str) and first.strip() and isinstance(last, str) and last.strip():
+            joined = f"{first.strip()} {last.strip()}".strip()
+            if joined:
+                return joined
+        name = _walk_str(data, ("managername", "displayname", "fullName"))
+        if name:
+            return name
+    return None
+
+
+def _find_team_id(blobs: list[tuple[str, Any]]) -> str | None:
+    for _, data in blobs:
+        if not isinstance(data, dict):
+            continue
+        for key in ("fantasyTeamId", "fantasy_team_id", "teamId", "entryId", "entry"):
+            value = data.get(key)
+            if value is not None and str(value).strip() and str(value).lower() not in {"true", "false"}:
+                return str(value).strip()
+        nested = data.get("fantasyTeam") or data.get("team")
+        if isinstance(nested, dict):
+            for key in ("id", "teamId", "fantasyTeamId"):
+                value = nested.get(key)
+                if value is not None:
+                    return str(value).strip()
+    return None
+
+
+def _summarize_account(blobs: list[tuple[str, Any]], email: str) -> dict[str, Any]:
+    points = None
+    gw_points = None
+    rank = None
+    chip_rows: list[dict[str, Any]] = []
+    history: list[dict[str, Any]] = []
+    top_keys: list[str] = []
+    for path, data in blobs:
+        if isinstance(data, dict):
+            top_keys.append(f"{path}: {', '.join(list(data.keys())[:18])}")
+        if points is None:
+            points = _deep_num(data, _POINT_KEYS, cap=4000.0)
+        if gw_points is None:
+            gw_points = _deep_num(data, _GW_KEYS, cap=400.0)
+        if rank is None:
+            rank = _deep_num(data, _RANK_KEYS, cap=5_000_000.0)
+        chip_rows.extend(_extract_chips(data))
+        if not history:
+            history = _walk_history(data)
+    if history:
+        vals = [_num(row.get("points")) or 0 for row in history]
+        if points is None and vals:
+            points = vals[-1] if any(v > 180 for v in vals) else sum(vals)
+        if gw_points is None:
+            gw_points = _num(history[-1].get("points"))
+        if rank is None:
+            rank = _num(history[-1].get("rank"))
+    chips = _dedupe_chips(chip_rows)
+    catalog = _chip_catalog(chips)
+    known = [row for row in catalog if row.get("known")]
+    used_list = _used_from_chips(known or chips, blobs)
+    earned = None
+    if history:
+        earned_vals = [row["earned"] for row in history if row.get("earned") is not None]
+        if earned_vals:
+            earned = sum(earned_vals)
+    note = None
+    chip_note = None
+    return {
+        "ok": True,
+        "email": email,
+        "name": _person_name(blobs),
+        "points": points,
+        "gameweek_points": gw_points,
+        "rank": rank,
+        "chips": known or chips,
+        "chip_catalog": catalog,
+        "chip_note": chip_note,
+        "cards_remaining": None,
+        "cards_used": used_list,
+        "earned": earned,
+        "history": history[:34],
+        "sources": [p for p, _ in blobs],
+        "source_keys": top_keys[:12],
+        "note": note,
+        "updated_at": _stamp(),
+    }
+
+
+def login_account(email: str, password: str) -> dict[str, Any]:
+    global _SESSION
+    _ensure_path()
+    from src.tff_client import TFFAuthError, TFFHttpError, backend_get, login, login_with_password
+    from src.tff_client import _session as tff_session
+
+    email = (email or "").strip()
+    password = password or ""
+    if not email or not password:
+        raise ValueError("E-posta ve şifre gerekli.")
+    session = None
+    try:
+        login_with_password(email, password)
+    except TFFAuthError:
+        session = login(email, password)
+    session = session or tff_session()
+    league_id = _league_id()
+    blobs: list[tuple[str, Any]] = []
+    seen: set[str] = set()
+    paths = _account_paths(league_id)
+    for path in paths:
+        if path in seen:
+            continue
+        seen.add(path)
+        try:
+            data = backend_get(path, session=session, timeout=8.0)
+            blobs.append((path, _unwrap(data)))
+        except (TFFAuthError, TFFHttpError, Exception):
+            continue
+        draft = _summarize_account(blobs, email)
+        if draft.get("points") is not None and any(row.get("known") for row in draft.get("chip_catalog") or []):
+            break
+    team_id = _find_team_id(blobs)
+    extra = []
+    if team_id:
+        extra = [
+            f"fantasy-team/{team_id}",
+            f"fantasy-teams/{team_id}",
+            f"entry/{team_id}",
+            f"fantasy-team/{team_id}/history",
+            f"users/me?league-id={league_id}",
+        ]
+    for path in extra:
+        if path in seen:
+            continue
+        seen.add(path)
+        try:
+            data = backend_get(path, session=session, timeout=8.0)
+            blobs.append((path, _unwrap(data)))
+        except (TFFAuthError, TFFHttpError, Exception):
+            continue
+    summary = _summarize_account(blobs, email)
+    if team_id:
+        summary["team_id"] = team_id
+    try:
+        from src.manager_cards import load_card_state
+
+        state = load_card_state()
+        summary["weeks_left"] = state.get("weeks_left")
+        if not summary.get("history") and isinstance(state.get("history"), list):
+            summary["history"] = [
+                {"week": row.get("week") or row.get("matchweek"), "points": row.get("points"), "card": row.get("card")}
+                for row in state.get("history") or []
+                if isinstance(row, dict)
+            ]
+    except Exception:
+        pass
+    with _LOCK:
+        _SESSION = summary
+    return json_safe(summary)
+
+
+def logout_account() -> None:
+    global _SESSION
+    with _LOCK:
+        _SESSION = None
+
+
+def _player_key(row: dict[str, Any]) -> str:
+    return _fold_token(str(row.get("player") or row.get("display_name") or ""))
+
+
+def _shape_of(formation: str) -> dict[str, int]:
+    parts: list[int] = []
+    for bit in str(formation or "").replace("–", "-").split("-"):
+        bit = bit.strip()
+        if bit.isdigit():
+            parts.append(int(bit))
+    if len(parts) == 3:
+        df, mf, fw = parts
+    elif len(parts) >= 4:
+        df, fw = parts[0], parts[-1]
+        mf = sum(parts[1:-1])
+    else:
+        df, mf, fw = 4, 3, 3
+    return {"GK": 1, "DF": df, "MF": mf, "FW": fw}
+
+
+def _layout_xi(squad: list[Any], formation: str) -> dict[str, list[dict[str, Any]]]:
+    need = _shape_of(formation)
+    pool = [row for row in squad if isinstance(row, dict)]
+    pool.sort(key=lambda row: float(row.get("projected_pts") or 0), reverse=True)
+    used: set[str] = set()
+    xi: list[dict[str, Any]] = []
+
+    def take(pos: str, count: int) -> None:
+        got = 0
+        for row in pool:
+            if got >= count:
+                return
+            key = _player_key(row)
+            if not key or key in used:
+                continue
+            if str(row.get("position") or "") == pos:
+                xi.append(row)
+                used.add(key)
+                got += 1
+
+    take("GK", need["GK"])
+    take("DF", need["DF"])
+    take("MF", need["MF"])
+    take("FW", need["FW"])
+    slots = need["GK"] + need["DF"] + need["MF"] + need["FW"]
+    for row in pool:
+        if len(xi) >= slots:
+            break
+        key = _player_key(row)
+        if key and key not in used:
+            xi.append(row)
+            used.add(key)
+    bench = [row for row in pool if _player_key(row) not in used]
+    bench.sort(key=lambda row: float(row.get("projected_pts") or 0), reverse=True)
+    return {"xi": xi, "bench": bench}
+
+
+def _with_formation_xi(payload: dict[str, Any]) -> dict[str, Any]:
+    result = payload.get("result") or {}
+    squad = list(result.get("squad") or [])
+    if not squad:
+        squad = list(result.get("xi") or []) + list(result.get("bench") or [])
+    comps = []
+    for row in payload.get("formation_comparisons") or []:
+        if not isinstance(row, dict):
+            continue
+        item = dict(row)
+        has = item.get("xi_players")
+        solid = (
+            isinstance(has, list)
+            and has
+            and isinstance(has[0], dict)
+            and (has[0].get("position") or has[0].get("player") or has[0].get("display_name"))
+        )
+        if not solid:
+            laid = _layout_xi(squad, str(item.get("formation") or ""))
+            item["xi_players"] = laid["xi"]
+            item["bench_players"] = laid["bench"]
+        comps.append(item)
+    out = dict(payload)
+    out["formation_comparisons"] = comps
+    return out
+
+
+def _formation_rows(raw: dict[str, Any]) -> list[dict[str, Any]]:
+    result = raw.get("raw_result") or raw.get("result") or {}
+    rows = result.get("formation_comparisons") or raw.get("formation_comparisons") or []
+    squad = list(result.get("squad") or [])
+    if not squad:
+        squad = list(result.get("xi") or []) + list(result.get("bench") or [])
+    out = []
+    seen = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("formation") or "")
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        xi_players = row.get("xi_players") or []
+        bench_players = row.get("bench_players") or []
+        if not (isinstance(xi_players, list) and xi_players and isinstance(xi_players[0], dict)):
+            laid = _layout_xi(squad, name)
+            xi_players = laid["xi"]
+            bench_players = laid["bench"]
+        out.append(
+            {
+                "formation": name,
+                "expected_pts": row.get("expected_pts"),
+                "xi_players": xi_players,
+                "bench_players": bench_players,
+            }
+        )
+    out.sort(key=lambda r: float(r.get("expected_pts") or 0), reverse=True)
+    return out[:8]
+
+
+def _card_sentence(card: dict[str, Any]) -> str:
+    use = bool(card.get("use"))
+    name = str(card.get("card") or "").strip()
+    if name in {"Kart kullanma", "Kart kullanmayın", ""}:
+        name = str(card.get("candidate") or "").strip()
+    extra = card.get("extra_pts")
+    explain = _CARD_EXPLAIN.get(name, "")
+    extra_txt = f" Beklenen ek {float(extra):.1f} puan." if extra is not None and float(extra) > 0 else ""
+    if use and name:
+        return f"Bu hafta {name} kartını kullanın.{extra_txt} {explain}".strip()
+    if name and extra is not None and float(extra) > 0:
+        return (
+            f"Bu hafta kart kullanmayın. En yakın aday {name}; "
+            f"beklenen ek {float(extra):.1f} puan, hakkı harcamaya yetmez."
+        )
+    return "Bu hafta menajer kartı kullanmayın."
+
+
+def _pname(player: dict[str, Any]) -> str:
+    return _tidy_name(str(player.get("display_name") or player.get("player") or ""))
+
+
+def _ppm(player: dict[str, Any]) -> float | None:
+    n = _num(player.get("ppm") or player.get("tff_ppm"))
+    if n is not None:
+        return n
+    pts = _num(player.get("projected_pts"))
+    price = _num(player.get("price_m"))
+    if pts is None or not price:
+        return None
+    return pts / price
+
+
+def _analysis(raw: dict[str, Any], public: dict[str, Any]) -> list[dict[str, str]]:
+    result = public.get("result") or {}
+    xi = [p for p in (result.get("xi") or []) if isinstance(p, dict)]
+    bench = [p for p in (result.get("bench") or []) if isinstance(p, dict)]
+    squad = [p for p in (result.get("squad") or []) if isinstance(p, dict)] or (xi + bench)
+    cap = result.get("captain") or {}
+    card = dict(public.get("manager_card") or {})
+    card["why"] = _card_sentence(card)
+    public["manager_card"] = card
+    comps = public.get("formation_comparisons") or []
+    sections: list[dict[str, str]] = []
+    total = result.get("total_projected")
+    bank = _num(result.get("bank"))
+    if total is not None:
+        bank_txt = f" Kasa {bank:.1f} mn." if bank is not None else ""
+        sections.append(
+            {
+                "title": "Haftalık puan",
+                "body": (
+                    f"Bu kadro {float(total):.1f} puan bekliyor. "
+                    f"İlk 11 {float(result.get('xi_projected') or 0):.1f}, "
+                    f"yedek {float(result.get('bench_projected') or 0):.1f}."
+                    f"{bank_txt}"
+                ).strip(),
+            }
+        )
+    if xi:
+        ordered = sorted(xi, key=lambda p: float(p.get("projected_pts") or 0), reverse=True)
+        top = "; ".join(
+            f"{_pname(p)} {float(p.get('projected_pts') or 0):.1f}"
+            for p in ordered[:5]
+        )
+        tail = [p for p in ordered if float(p.get("projected_pts") or 0) < 2.2]
+        tail_txt = ""
+        if tail:
+            tail_txt = " Zayıf halka: " + ", ".join(
+                f"{_pname(p)} {float(p.get('projected_pts') or 0):.1f}" for p in tail[:3]
+            ) + "."
+        sections.append({"title": "İlk 11", "body": top + "." + tail_txt})
+    if cap:
+        raw_pts = float(cap.get("projected_pts") or 0)
+        name = _pname(cap) or "—"
+        xi_sorted = sorted(
+            xi, key=lambda p: float(p.get("pts_if_plays") or p.get("projected_pts") or 0), reverse=True
+        )
+        alt = next((p for p in xi_sorted if _pname(p) != name), None)
+        alt_txt = ""
+        if alt:
+            alt_txt = (
+                f" İkinci {_pname(alt)} ({alt.get('team') or '—'}), "
+                f"{float(alt.get('projected_pts') or 0):.1f} p."
+            )
+        sections.append(
+            {
+                "title": "Kaptan",
+                "body": (
+                    f"{name} ({cap.get('team') or '—'}) kaptan, {raw_pts:.1f} p. "
+                    f"Standart ×2 {raw_pts * 2:.1f}, Tripleks ×3 {raw_pts * 3:.1f}."
+                    f"{alt_txt}"
+                ).strip(),
+            }
+        )
+    sections.append({"title": "Menajer kartı", "body": _card_sentence(card)})
+    flags = []
+    for player in squad:
+        avail = str(player.get("availability") or "").upper()
+        news = str(player.get("avail_news") or "").strip()
+        if avail and avail not in {"AVAILABLE", "AVAILABLE_TO_PLAY", ""}:
+            flags.append(f"{_pname(player)} {avail.lower()}" + (f" ({news})" if news else ""))
+    if flags:
+        sections.append(
+            {
+                "title": "Hazırlık",
+                "body": "Forma şüphesi: " + "; ".join(flags[:6]) + ".",
+            }
+        )
+    if comps:
+        line = "; ".join(
+            f"{row.get('formation')} {float(row.get('expected_pts') or 0):.1f}"
+            for row in comps[:6]
+        )
+        sections.append(
+            {
+                "title": "Diziliş",
+                "body": f"Seçilen {result.get('formation')}. Karşılaştırma: {line}.",
+            }
+        )
+    if bench:
+        names = ", ".join(_pname(p) for p in bench[:4] if _pname(p))
+        if names:
+            sections.append({"title": "Yedekler", "body": names + "."})
+    watch = public.get("watch") or []
+    if watch:
+        sections.append(
+            {
+                "title": "Alınabilecekler",
+                "body": "Kadro dışı, fiyata göre iyi puan: "
+                + "; ".join(
+                    f"{_pname(p)} {float(p.get('price_m') or 0):.1f} mn, {float(p.get('projected_pts') or 0):.1f} p"
+                    for p in watch[:5]
+                )
+                + ".",
+            }
+        )
+    return sections
+
+
+def _public(raw: dict[str, Any]) -> dict[str, Any]:
+    result = dict(raw.get("result") or {})
+    for key in ("squad", "xi", "bench"):
+        rows = result.get(key) or []
+        result[key] = [_slim_player(row) if isinstance(row, dict) else row for row in rows]
+    cap = result.get("captain")
+    if isinstance(cap, dict):
+        for key in ("display_name", "player"):
+            if cap.get(key):
+                cap[key] = _tidy_name(str(cap[key]))
+        result["captain"] = cap
+    meta = dict(raw.get("meta") or {})
+    meta.pop("fixture_context", None)
+    leaders = {}
+    for pos, rows in (raw.get("leaders") or {}).items():
+        leaders[pos] = [_slim_player(row) for row in (rows or [])[:8]]
+    card = dict(raw.get("manager_card") or {})
+    card["why"] = _card_sentence(card)
+    squad_names = {
+        _pname(row)
+        for row in (result.get("squad") or result.get("xi") or [])
+        if isinstance(row, dict)
+    }
+    watch = []
+    for row in raw.get("new_signings") or []:
+        if not isinstance(row, dict):
+            continue
+        slim = _slim_player(row)
+        if _pname(slim) and _pname(slim) not in squad_names:
+            watch.append(slim)
+        if len(watch) >= 6:
+            break
+    if len(watch) < 4:
+        for pos in ("FW", "MF", "DF", "GK"):
+            for row in leaders.get(pos) or []:
+                if _pname(row) and _pname(row) not in squad_names:
+                    watch.append(row)
+                if len(watch) >= 6:
+                    break
+            if len(watch) >= 6:
+                break
+    payload = {
+        "ok": True,
+        "fetched_at": _stamp(),
+        "meta": meta,
+        "result": result,
+        "fixtures": raw.get("fixtures") or [],
+        "manager_card": card,
+        "leaders": leaders,
+        "watch": watch[:6],
+        "formation_comparisons": _formation_rows(raw),
+        "account": account_public(),
+    }
+    payload["analysis"] = _analysis(raw, payload)
+    return _sanitize_payload(_with_formation_xi(payload))
+
+
+def _persist(payload: dict[str, Any]) -> None:
+    FANTASY_CACHE.parent.mkdir(parents=True, exist_ok=True)
+    FANTASY_CACHE.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+
+def load_cached() -> None:
+    global _LAST
+    if not FANTASY_CACHE.exists():
+        return
+    try:
+        data = json.loads(FANTASY_CACHE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    with _LOCK:
+        _LAST = data
+        _STATE["phase"] = "ready"
+        _STATE["message"] = "Kayıtlı kadro yüklendi."
+        _STATE["progress"] = 1.0
+        _STATE["error"] = None
+        _STATE["updated_at"] = _stamp()
+
+
+def _pipeline():
+    _ensure_path()
+    from src.pipeline import run_pipeline
+
+    return run_pipeline
+
+
+def _run(fetch_prices: bool, refresh_cache: bool) -> None:
+    global _LAST
+    try:
+        _set(phase="run", message="TFF Fantezi Lig oturumu doğrulanıyor.", progress=0.06, error=None)
+        run_pipeline = _pipeline()
+
+        def progress(msg: str) -> None:
+            low = msg.lower()
+            frac = 0.14
+            if "fiyat" in low:
+                frac = 0.28
+                msg = "TFF Fantezi Lig fiyatları alınıyor."
+            elif "sofascore" in low or "form" in low:
+                frac = 0.52
+                msg = "Süper Lig formu okunuyor."
+            elif "fotmob" in low:
+                frac = 0.70
+                msg = "FotMob ile ilk 11 ve kulüp maçları doğrulanıyor."
+            elif "optimize" in low or "diziliş" in low or "imza" in low:
+                frac = 0.88
+                msg = "Diziliş ve ilk 11 hesaplanıyor."
+            _set(message=msg, progress=frac)
+
+        raw = run_pipeline(
+            fetch_prices=fetch_prices,
+            refresh_cache=refresh_cache,
+            report_png=None,
+            progress=progress,
+        )
+        payload = json_safe(_public(raw))
+        _persist(payload)
+        with _LOCK:
+            _LAST = payload
+        _set(phase="ready", message="Kadro hazır.", progress=1.0, error=None)
+    except Exception as exc:
+        _set(phase="error", message="Kadro hesaplanamadı.", error=str(exc))
+
+
+def start(fetch_prices: bool = True, refresh_cache: bool = False) -> dict[str, Any]:
+    global _THREAD
+    with _LOCK:
+        if not (_SESSION and _SESSION.get("ok")):
+            return {
+                **status(),
+                "error": "Önce TFF Fantezi Lig hesabına girin.",
+            }
+        if _THREAD and _THREAD.is_alive():
+            return status()
+        _THREAD = threading.Thread(
+            target=_run,
+            kwargs={"fetch_prices": fetch_prices, "refresh_cache": refresh_cache},
+            daemon=True,
+        )
+        _THREAD.start()
+    return status()
