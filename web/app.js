@@ -253,6 +253,17 @@ function fact(label, value) {
   return `<div><span>${esc(label)}</span><b>${esc(value)}</b></div>`;
 }
 
+function metric(label, value, className = "") {
+  const shown = value == null || value === "" ? "—" : value;
+  return `<div class="metric ${esc(className)}"><span>${esc(label)}</span><b>${esc(shown)}</b></div>`;
+}
+
+function fmtSmallNumber(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return "—";
+  return n.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 function moneyAmount(value) {
   if (value == null || value === "") return 0;
   if (typeof value === "string") {
@@ -652,6 +663,16 @@ async function renderPlayer(id, gen) {
   const foot = footLabel(p.foot);
   const intlLine = [p.intl_caps ? `${p.intl_caps} maç` : "", p.intl_goals ? `${p.intl_goals} gol` : ""].filter(Boolean).join(" · ");
   const cardLine = [p.yellow_2y ? `${p.yellow_2y} sarı` : "", p.red_2y ? `${p.red_2y} kırmızı` : ""].filter(Boolean).join(" · ");
+  const production = [
+    metric("12 ay", p.minutes_365 ? `${fmtCount(p.minutes_365)} dk` : "—"),
+    metric("Maç", p.apps_2y || "—"),
+    metric("Gol", p.goals_2y ?? "—"),
+    metric("Asist", p.assists_2y ?? "—"),
+    metric("Gol/90", fmtSmallNumber(p.goals_p90), "rate"),
+    metric("Asist/90", fmtSmallNumber(p.assists_p90), "rate"),
+    metric("G+A/90", fmtSmallNumber(p.contrib_p90), "rate main"),
+    metric("Kart", cardLine || "—"),
+  ].join("");
   const facts = [
     fact("Mevki", ident.position || p.position),
     fact("Lig", ident.league || p.league),
@@ -706,8 +727,9 @@ async function renderPlayer(id, gen) {
         <div class="hint">Dakika, yaş ve lig</div>
       </div>
     </div>
-    <div class="metrics">
-      ${(r.metrics || []).filter((m) => m.k !== "Aralık" && m.k !== "Sözleşme").map((m) => `<div class="metric"><span>${esc(m.k)}</span><b>${esc(m.v)}</b></div>`).join("")}
+    <div class="metric-title">Üretim özeti</div>
+    <div class="metrics production-metrics">
+      ${production}
     </div>
     <div class="group">
       <h3>Etiket eğrisi</h3>

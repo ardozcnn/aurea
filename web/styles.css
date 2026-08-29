@@ -196,8 +196,8 @@ body.on-home .nav-search {
   color: var(--gold);
 }
 h1, h2, h3 { font-family: var(--display); margin: 0; font-weight: 600; }
-h1 { font-size: clamp(34px, 4.4vw, 52px); line-height: 1.12; font-weight: 500; letter-spacing: 0.015em; }
-.lede { color: var(--muted); margin: 8px 0 0; font-size: 16px; line-height: 1.5; }
+h1 { font-size: clamp(32px, 4vw, 48px); line-height: 1.1; font-weight: 500; letter-spacing: 0.012em; }
+.lede { color: var(--muted); margin: 8px 0 0; font-size: clamp(15px, 1.8vw, 17px); line-height: 1.55; }
 .hero.center .lede { margin-left: auto; margin-right: auto; }
 
 .spotlight {
@@ -425,7 +425,7 @@ h1 { font-size: clamp(34px, 4.4vw, 52px); line-height: 1.12; font-weight: 500; l
 .pager { display: flex; gap: 10px; align-items: center; margin-top: 18px; color: var(--muted); font-size: 13px; }
 
 .player-head { margin-bottom: 0; }
-.player-head h1 { font-size: clamp(32px, 4.6vw, 52px); font-weight: 500; }
+.player-head h1 { font-size: clamp(34px, 4.2vw, 50px); font-weight: 500; }
 .facts {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
@@ -440,8 +440,8 @@ h1 { font-size: clamp(34px, 4.4vw, 52px); line-height: 1.12; font-weight: 500; l
   padding: 10px 12px;
   min-width: 0;
 }
-.facts span { display: block; color: var(--muted); font-size: 12px; margin-bottom: 2px; }
-.facts b { display: block; font-weight: 600; overflow-wrap: anywhere; }
+.facts span { display: block; color: var(--muted); font-size: 11px; margin-bottom: 3px; letter-spacing: 0.03em; text-transform: uppercase; }
+.facts b { display: block; font-size: 14px; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
 
 .read {
   background: var(--card);
@@ -455,8 +455,8 @@ h1 { font-size: clamp(34px, 4.4vw, 52px); line-height: 1.12; font-weight: 500; l
 .read.yuksek { border-left-color: var(--red); }
 .read.dusuk { border-left-color: var(--green); }
 .read .kicker { margin-bottom: 4px; }
-.read h2 { font-size: 26px; font-weight: 500; margin: 0 0 8px; }
-.read p { margin: 0; color: #c9c3b6; font-size: 16px; line-height: 1.65; }
+.read h2 { font-size: clamp(22px, 2.6vw, 28px); font-weight: 500; margin: 0 0 8px; }
+.read p { margin: 0; color: #c9c3b6; font-size: 16px; line-height: 1.7; }
 
 .tri { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 12px; }
 .duo { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
@@ -469,25 +469,35 @@ h1 { font-size: clamp(34px, 4.4vw, 52px); line-height: 1.12; font-weight: 500; l
 }
 .price-card.hero { background: var(--gold-dim); border-color: var(--gold); }
 .price-card .k { color: var(--muted); font-size: 13px; font-weight: 600; }
-.price-card .n { font-family: var(--display); font-size: 28px; font-weight: 500; margin-top: 6px; }
+.price-card .n { font-family: var(--display); font-size: clamp(24px, 3vw, 30px); font-weight: 500; margin-top: 6px; line-height: 1.05; }
 .price-card .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
 .price-card .pill { margin-top: 10px; }
 
 .metrics {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
   gap: 8px;
-  margin: 14px 0 8px;
+  margin: 8px 0 8px;
+}
+.metric-title {
+  margin: 18px 0 8px;
+  color: var(--gold);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 .metric {
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 10px;
-  padding: 12px 14px;
+  padding: 11px 13px;
   min-width: 0;
 }
-.metric span { display: block; color: var(--muted); font-size: 12px; }
-.metric b { display: block; font-size: 15px; overflow-wrap: anywhere; }
+.metric span { display: block; color: var(--muted); font-size: 11px; letter-spacing: 0.03em; text-transform: uppercase; }
+.metric b { display: block; margin-top: 2px; font-size: 16px; line-height: 1.25; overflow-wrap: anywhere; }
+.metric.rate b { color: var(--gold); font-size: 18px; }
+.metric.main { background: var(--gold-dim); border-color: rgba(212, 181, 106, 0.38); }
 
 .group {
   background: var(--card);
@@ -506,7 +516,7 @@ h1 { font-size: clamp(34px, 4.4vw, 52px); line-height: 1.12; font-weight: 500; l
 }
 .group article { padding: 12px 18px 16px; border-bottom: 1px solid var(--line); }
 .group .chip-board article { border-bottom: 0; padding: 12px 12px 10px; }
-.group article b { font-family: var(--display); font-size: 18px; font-weight: 500; display: block; margin-bottom: 4px; }
+.group article b { font-family: var(--display); font-size: 19px; font-weight: 500; display: block; margin-bottom: 4px; }
 .group article:last-child { border-bottom: 0; }
 .group p { margin: 8px 0 0; color: #c9c3b6; font-size: 16px; line-height: 1.65; }
 .chip-legend {
@@ -1128,7 +1138,10 @@ h1 { font-size: clamp(34px, 4.4vw, 52px); line-height: 1.12; font-weight: 500; l
   .shirt { width: calc(50% - 8px); max-width: 160px; }
   .deal-head-row b { font-size: 20px; }
   .deal-clubs { flex-wrap: wrap; }
-  .page-head h1, .player-head h1 { font-size: 28px; }
+  .page-head h1, .player-head h1 { font-size: 30px; }
   .read h2 { font-size: 22px; }
+  .metric-title { margin-top: 14px; }
+  .metric b { font-size: 15px; }
+  .metric.rate b { font-size: 17px; }
   .drop { left: 12px !important; right: 12px; width: auto !important; max-width: none; }
 }
