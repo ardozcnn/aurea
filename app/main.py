@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import threading
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -67,9 +67,16 @@ def _startup() -> None:
     start_bootstrap()
 
 
-@app.get("/")
-def home():
+@app.api_route("/", methods=["GET", "HEAD"])
+def home(request: Request):
+    if request.method == "HEAD":
+        return Response(status_code=200, media_type="text/html")
     return FileResponse(WEB_DIR / "index.html")
+
+
+@app.api_route("/healthz", methods=["GET", "HEAD"])
+def healthz():
+    return Response(status_code=200, content="ok", media_type="text/plain")
 
 
 @app.get("/api/status")
