@@ -1,0 +1,1507 @@
+"""TFF Fantezi puan tahmini (form + baz blend)."""
+
+from __future__ import annotations
+
+import math
+from typing import Any
+
+import pandas as pd
+
+from .config import (
+    ASSIST_POINTS,
+    AVAIL_MULT,
+    BCC_TO_ASSIST,
+    CONCEDED_PENALTY_PER_2,
+    COUNT_PRIOR_MATCHES,
+    COUNT_RATE_KEYS,
+    CS_POINTS,
+    EARLY_SEASON_FORM_CAP_APPS,
+    ESTABLISHED_SL_APPS,
+    FIXTURE_CS_CEILING,
+    FIXTURE_CS_FLOOR,
+    FORM_PRIOR_MATCHES,
+    GK_SAVES_PRIOR_MATCHES,
+    GOAL_POINTS,
+    HORIZON_WEIGHTS,
+    KEYPASS_TO_ASSIST,
+    MIN_60_POINTS,
+    MIN_FORM_MINUTES_FOR_RATES,
+    MIN_FULL_POINTS,
+    OWN_GOAL_PENALTY,
+    PENALTY_MISS_PENALTY,
+    PENALTY_SAVE_POINTS,
+    POS_MAP,
+    RARE_PRIOR_MATCHES,
+    RARE_RATE_KEYS,
+    RED_PENALTY,
+    SAVE_POINTS_PER_3,
+    SOT_TO_GOAL,
+    TFF_EARLY_PRIOR_MATCHES,
+    W_FORM_DEFAULT,
+    YELLOW_PENALTY,
+)
+from .names import normalize_name
+from .team_model import blend_cs_probability, blend_goal_expectation
+
+
+def map_position(pos: str | float | None) -> str | None:
+    if pos is None or (isinstance(pos, float) and pd.isna(pos)):
+        return None
+    raw = str(pos).upper().replace(",", " ").split()
+    if not raw:
+        return None
+    primary = raw[0].strip()
+    if primary in ("G", "GK"):
+        return "GK"
+    if primary in ("D", "DF"):
+        return "DF"
+    if primary in ("M", "MF"):
+        return "MF"
+    if primary in ("F", "FW", "A", "ST"):
+        return "FW"
+    if primary in POS_MAP:
+        return POS_MAP[primary]
+    for token in raw:
+        t = token.strip()
+        if t in POS_MAP:
+            return POS_MAP[t]
+    return None
+
+
+def _safe_div(n: float, d: float) -> float:
+    if d is None or d == 0 or pd.isna(d):
+        return 0.0
+    return float(n) / float(d)
+
+
+def _empty_rates() -> dict[str, float]:
+    return {
+        "apps": 0.0,
+        "min_per_app": 0.0,
+        "share_60": 0.0,
+        "gls_pa": 0.0,
+        "ast_pa": 0.0,
+        "xg_pa": 0.0,
+        "xa_pa": 0.0,
+        "yc_pa": 0.0,
+        "rc_pa": 0.0,
+        "saves_pa": 0.0,
+        "ga_pa": 0.0,
+        "cs_rate": 0.0,
+        "int_p90": 0.0,
+        "tkl_p90": 0.0,
+        "rating": 0.0,
+        "pen_save_pa": 0.0,
+        "pen_miss_pa": 0.0,
+        "og_pa": 0.0,
+        "key_passes_pa": 0.0,
+        "bcc_pa": 0.0,
+        "bcm_pa": 0.0,
+        "sot_pa": 0.0,
+        "shots_pa": 0.0,
+        "dribbles_pa": 0.0,
+        "pen_won_pa": 0.0,
+        "apps_60": 0.0,
+    }
+
+
+def _row_rates(row: pd.Series | dict[str, Any]) -> dict[str, float]:
+    if row is None:
+        return _empty_rates()
+    get = row.get if hasattr(row, "get") else lambda k, d=None: row[k] if k in row else d
+    mp = float(get("mp") or 0) or 0.0
+    minutes = float(get("minutes") or 0) or 0.0
+    if mp <= 0 and minutes > 0:
+        mp = max(minutes / 90.0, 1.0)
+    n90 = float(get("nineties") or 0) or (minutes / 90.0 if minutes else mp)
+
+    gls = float(get("gls") or 0) or 0.0
+    ast = float(get("ast") or 0) or 0.0
+    xg = float(get("xg") or 0) or 0.0
+    xa = float(get("xa") or 0) or 0.0
+    crdy = float(get("crdy") or 0) or 0.0
+    crdr = float(get("crdr") or 0) or 0.0
+    saves = float(get("saves") or 0) or 0.0
+    ga = float(get("ga") or 0) or 0.0
+    cs = float(get("cs") or 0) or 0.0
+    inter = float(get("int") or 0) or 0.0
+    tkl = float(get("tkl") or 0) or 0.0
+    rating = float(get("rating") or 0) or 0.0
+    pen_save = float(get("pen_save") or 0) or 0.0
+    pen_miss = float(get("pen_miss") or 0) or 0.0
+    og = float(get("og") or 0) or 0.0
+    key_passes = float(get("key_passes") or 0) or 0.0
+    bcc = float(get("bcc") or 0) or 0.0
+    bcm = float(get("bcm") or 0) or 0.0
+    sot = float(get("sot") or 0) or 0.0
+    shots = float(get("shots") or 0) or 0.0
+    dribbles = float(get("dribbles") or 0) or 0.0
+    pen_won = float(get("pen_won") or 0) or 0.0
+    apps_60 = float(get("apps_60") or 0) or 0.0
+
+    apps = max(mp, 1.0) if (gls or ast or minutes or mp or xg or key_passes or sot) else 0.0
+    if apps <= 0:
+        return _empty_rates()
+
+    min_per_app = minutes / apps if apps else 0.0
+    if apps_60 > 0 and apps > 0:
+        share_60 = min(1.0, apps_60 / apps)
+    elif min_per_app >= 60:
+        share_60 = min(1.0, 0.55 + (min_per_app - 60) / 60.0)
+    elif min_per_app >= 1:
+        share_60 = min_per_app / 90.0 * 0.5
+    else:
+        share_60 = 0.0
+
+    return {
+        "apps": apps,
+        "min_per_app": min_per_app,
+        "share_60": share_60,
+        "gls_pa": gls / apps,
+        "ast_pa": ast / apps,
+        "xg_pa": xg / apps if xg else 0.0,
+        "xa_pa": xa / apps if xa else 0.0,
+        "yc_pa": crdy / apps,
+        "rc_pa": crdr / apps,
+        "saves_pa": saves / apps,
+        "ga_pa": ga / apps if ga else _safe_div(ga, apps),
+        "cs_rate": cs / apps if cs else 0.0,
+        "int_p90": _safe_div(inter, n90) if n90 else 0.0,
+        "tkl_p90": _safe_div(tkl, n90) if n90 else 0.0,
+        "rating": rating,
+        "pen_save_pa": pen_save / apps,
+        "pen_miss_pa": pen_miss / apps,
+        "og_pa": og / apps,
+        "key_passes_pa": key_passes / apps,
+        "bcc_pa": bcc / apps,
+        "bcm_pa": bcm / apps,
+        "sot_pa": sot / apps,
+        "shots_pa": shots / apps,
+        "dribbles_pa": dribbles / apps,
+        "pen_won_pa": pen_won / apps,
+        "apps_60": apps_60,
+    }
+
+
+def rates_from_totals(row: pd.Series | dict[str, Any]) -> dict[str, float]:
+    return _row_rates(row)
+
+
+def _blend_attack(
+    actual_pa: float,
+    expected_pa: float,
+    proxy_pa: float = 0.0,
+    apps: float | None = None,
+) -> float:
+    """xG/xA daha öngörülebilir; şut/kilit pas vekil; ham G/A şans gürültüsü."""
+    actual_reliability = (
+        1.0
+        if apps is None
+        else min(1.0, max(0.0, float(apps or 0.0)) / 10.0)
+    )
+    parts: list[tuple[float, float]] = []
+    if expected_pa and expected_pa > 0:
+        parts.append((0.55, expected_pa))
+        parts.append((0.30 * actual_reliability, actual_pa))
+        if proxy_pa > 0:
+            parts.append((0.15, proxy_pa))
+    elif proxy_pa > 0:
+        parts.append((0.45 * actual_reliability, actual_pa))
+        parts.append((0.55, proxy_pa))
+    else:
+        return actual_pa
+    wsum = sum(w for w, _ in parts)
+    return sum(w * v for w, v in parts) / wsum if wsum else actual_pa
+
+
+def _bonus_from_rating(rating: float) -> float:
+    """Sofa rating yalnızca BPS vekilidir; etkisi sınırlı ve yumuşak tutulur."""
+    if rating <= 6.4:
+        return 0.03
+    return min(0.80, 0.45 * (rating - 6.4))
+
+
+def _expected_concede_penalty(goals_conceded: float) -> float:
+    """Poisson yaklaşımıyla E[floor(yenen gol / 2)]."""
+    lam = max(0.0, float(goals_conceded or 0.0))
+    if lam <= 0:
+        return 0.0
+    probability = math.exp(-lam)
+    expected = 0.0
+    for goals in range(1, 13):
+        if goals > 1:
+            probability *= lam / goals
+        else:
+            probability = math.exp(-lam) * lam
+        expected += (goals // 2) * probability
+    return expected
+
+
+def expected_points_from_rates(
+    rates: dict[str, float],
+    position: str,
+    team_cs_rate: float | None = None,
+    *,
+    appearance: float | None = None,
+    attack_mult: float = 1.0,
+    cs_mult: float = 1.0,
+    save_mult: float = 1.0,
+    lambda_for: float | None = None,
+    lambda_against: float | None = None,
+    p_cs: float | None = None,
+    team_goal_rate: float | None = None,
+) -> float:
+    """Bir maçlık beklenen TFF fantezi puanı (dakika, xG/xA, CS, kart, bonus, penaltı)."""
+    if not rates or rates.get("apps", 0) <= 0:
+        return 0.0
+    pos = position if position in GOAL_POINTS else "MF"
+    share_60 = rates["share_60"]
+    if appearance is None:
+        min_pa = rates.get("min_per_app") or 0.0
+        appearance = 0.94 if min_pa >= 70 else (0.88 if min_pa >= 50 else 0.75)
+    min_pts = appearance * (
+        MIN_60_POINTS + share_60 * (MIN_FULL_POINTS - MIN_60_POINTS)
+    )
+
+    exp_gls = _blend_attack(
+        rates.get("gls_pa") or 0.0,
+        rates.get("xg_pa") or 0.0,
+        (rates.get("sot_pa") or 0.0) * SOT_TO_GOAL,
+        rates.get("apps"),
+    )
+    kp_proxy = (rates.get("key_passes_pa") or 0.0) * KEYPASS_TO_ASSIST
+    bcc_proxy = (rates.get("bcc_pa") or 0.0) * BCC_TO_ASSIST
+    exp_ast = _blend_attack(
+        rates.get("ast_pa") or 0.0,
+        rates.get("xa_pa") or 0.0,
+        max(kp_proxy, bcc_proxy),
+        rates.get("apps"),
+    )
+    adj_gls = blend_goal_expectation(
+        exp_gls,
+        attack_mult=attack_mult,
+        lambda_for=lambda_for,
+        team_goal_rate=team_goal_rate,
+    )
+    adj_ast = blend_goal_expectation(
+        exp_ast,
+        attack_mult=attack_mult,
+        lambda_for=lambda_for,
+        team_goal_rate=team_goal_rate,
+    )
+    goal_pts = appearance * adj_gls * GOAL_POINTS[pos]
+    assist_pts = appearance * adj_ast * ASSIST_POINTS
+
+    raw_cs = team_cs_rate if team_cs_rate is not None else rates.get("cs_rate", 0.0)
+    cs_rate = blend_cs_probability(
+        float(raw_cs or 0.0),
+        cs_mult=cs_mult,
+        p_cs=p_cs,
+    )
+    if pos in ("GK", "DF"):
+        cs_pts = appearance * cs_rate * share_60 * CS_POINTS[pos]
+        apps_n = float(rates.get("apps") or 0.0)
+        if lambda_against is not None:
+            ga_pa = float(lambda_against)
+        elif team_cs_rate is not None:
+            ga_pa = -math.log(max(0.03, min(0.97, cs_rate)))
+        elif apps_n < 4:
+            ga_pa = 1.25
+        else:
+            ga_pa = rates.get("ga_pa") or (1.0 - cs_rate) * 1.2
+        concede_pen = (
+            appearance
+            * _expected_concede_penalty(ga_pa)
+            * CONCEDED_PENALTY_PER_2
+            * share_60
+        )
+    elif pos == "MF":
+        cs_pts = appearance * cs_rate * share_60 * CS_POINTS["MF"]
+        concede_pen = 0.0
+    else:
+        cs_pts = 0.0
+        concede_pen = 0.0
+
+    save_pts = 0.0
+    if pos == "GK":
+        save_pts = (
+            appearance
+            * (rates.get("saves_pa", 0.0) / 3.0)
+            * SAVE_POINTS_PER_3
+            * float(save_mult or 1.0)
+        )
+        save_pts += appearance * (rates.get("pen_save_pa") or 0.0) * PENALTY_SAVE_POINTS
+
+    card_pen = appearance * (
+        rates.get("yc_pa", 0.0) * YELLOW_PENALTY
+        + rates.get("rc_pa", 0.0) * RED_PENALTY
+    )
+    pen_miss = appearance * (rates.get("pen_miss_pa") or 0.0) * PENALTY_MISS_PENALTY
+    og_pen = appearance * (rates.get("og_pa") or 0.0) * OWN_GOAL_PENALTY
+    bonus = appearance * _bonus_from_rating(rates.get("rating") or 0.0)
+
+    return float(
+        max(
+            0.0,
+            min_pts
+            + goal_pts
+            + assist_pts
+            + cs_pts
+            + save_pts
+            + bonus
+            - concede_pen
+            - card_pen
+            - pen_miss
+            - og_pen,
+        )
+    )
+
+
+def soft_early_form_rates(
+    form_rates: dict[str, float],
+    base_rates: dict[str, float],
+    form_apps: float,
+    prev_apps: float,
+    position: str = "MF",
+) -> dict[str, float]:
+    """Tek maçlık gol/asist sinyalini güçlü SL geçmişinin üstüne yazma."""
+    apps = float(form_apps or 0.0)
+    prior_sl = float(prev_apps or 0.0)
+    if apps <= 0 or apps >= 6:
+        return form_rates
+    prior_rates = (
+        base_rates
+        if prior_sl >= ESTABLISHED_SL_APPS
+        else _position_prior_rates(position)
+    )
+    out = dict(form_rates)
+    for key in RARE_RATE_KEYS:
+        observed = float(form_rates.get(key) or 0.0)
+        baseline = float(prior_rates.get(key) or 0.0)
+        weight = apps / (apps + RARE_PRIOR_MATCHES)
+        out[key] = weight * observed + (1.0 - weight) * baseline
+    return out
+
+
+def season_sample_weight(n_effective: float, prior_matches: float) -> float:
+    """Mevcut sezon örneği büyüdükçe prior'dan current'a kayan Bayes ağırlığı."""
+    n = max(0.0, float(n_effective or 0.0))
+    prior = max(1e-9, float(prior_matches or 0.0))
+    return n / (n + prior)
+
+
+def effective_match_sample(apps: float, minutes: float) -> float:
+    """Kaleci/oyuncu için efektif maç örneği: dakika/90 ile apps'in büyüğü."""
+    apps_n = max(0.0, float(apps or 0.0))
+    minutes_n = max(0.0, float(minutes or 0.0))
+    return max(apps_n, minutes_n / 90.0)
+
+
+def shrink_official_ppg(
+    official_ppg: float,
+    model_pts: float,
+    n_apps: float,
+    *,
+    price_m: float = 0.0,
+    position: str = "",
+) -> float:
+    """Resmî maç başı puanını örneklem ve fiyata göre model prior'una küçültür."""
+    observed = float(official_ppg or 0.0)
+    model = float(model_pts or 0.0)
+    sample = max(0.0, float(n_apps or 0.0))
+    price = float(price_m or 0.0)
+    pos = str(position or "").upper()
+    if sample >= 1.8:
+        prior = 1.5
+        cap_extra = 5.5
+    elif pos == "GK" and sample >= 0.8:
+        prior = 3.5
+        cap_extra = 3.75
+    elif price >= 9.5 and sample >= 0.8:
+        prior = 3.0
+        cap_extra = 4.5
+    elif 0.0 < price < 7.0 and sample <= 1.5 and observed > model + 5.0:
+        prior = 10.0
+        cap_extra = 2.5
+    else:
+        prior = 8.0
+        cap_extra = 2.75
+    shrunk = (sample * observed + prior * model) / (sample + prior)
+    return min(shrunk, model + cap_extra)
+
+
+def infer_official_apps(tff_minutes: float, tff_starts: float) -> float:
+    """TFF starts alanı boş kalsa da dakikadan resmî maç örneği çıkarır."""
+    minutes = max(0.0, float(tff_minutes or 0.0))
+    starts = max(0.0, float(tff_starts or 0.0))
+    from_minutes = minutes / 75.0
+    inferred = 0.0
+    if minutes >= 60.0:
+        inferred = max(1.0, minutes / 85.0)
+    return max(starts, from_minutes, inferred)
+
+
+def blend_goalkeeper_components(
+    *,
+    current_saves_pa: float,
+    prior_saves_pa: float,
+    current_sample: float,
+    team_cs: float,
+    personal_prior_cs: float | None = None,
+    share_60: float = 1.0,
+    min_per_app: float = 90.0,
+    saves_prior_matches: float = GK_SAVES_PRIOR_MATCHES,
+    fixture_attack_mult: float = 1.0,
+    fixture_cs_mult: float = 1.0,
+    rating: float = 0.0,
+    save_mult: float = 1.0,
+    lambda_for: float | None = None,
+    lambda_against: float | None = None,
+    p_cs: float | None = None,
+    team_goal_rate: float | None = None,
+) -> dict[str, Any]:
+    """
+    Kaleci: kurtarış kişisel prior+current harmanı; CS puanı takım oranından.
+    Kişisel geçmiş CS yalnız denetim/fallback için saklanır.
+    """
+    w_saves = season_sample_weight(current_sample, saves_prior_matches)
+    blended_saves = w_saves * float(current_saves_pa or 0.0) + (
+        1.0 - w_saves
+    ) * float(prior_saves_pa or 0.0)
+    team_cs_rate = float(team_cs or 0.0)
+    if team_cs_rate <= 0 and personal_prior_cs is not None:
+        team_cs_rate = float(personal_prior_cs)
+    rates = {
+        "apps": max(1.0, float(current_sample or 1.0)),
+        "share_60": max(0.0, min(1.0, float(share_60 or 0.0))),
+        "min_per_app": float(min_per_app or 90.0),
+        "saves_pa": blended_saves,
+        "cs_rate": team_cs_rate,
+        "rating": float(rating or 0.0),
+        "gls_pa": 0.0,
+        "ast_pa": 0.0,
+        "xg_pa": 0.0,
+        "xa_pa": 0.0,
+        "yc_pa": 0.0,
+        "rc_pa": 0.0,
+        "pen_save_pa": 0.0,
+        "pen_miss_pa": 0.0,
+        "og_pa": 0.0,
+    }
+    cs_after = blend_cs_probability(
+        team_cs_rate,
+        cs_mult=float(fixture_cs_mult or 1.0),
+        p_cs=p_cs,
+    )
+    pts = expected_points_from_rates(
+        rates,
+        "GK",
+        team_cs_rate=team_cs_rate,
+        appearance=1.0,
+        attack_mult=fixture_attack_mult,
+        cs_mult=fixture_cs_mult,
+        save_mult=save_mult,
+        lambda_for=lambda_for,
+        lambda_against=lambda_against,
+        p_cs=p_cs,
+        team_goal_rate=team_goal_rate,
+    )
+    saves_contrib = (blended_saves / 3.0) * SAVE_POINTS_PER_3 * float(save_mult or 1.0)
+    return {
+        "rates": rates,
+        "projected_pts": round(float(pts), 3),
+        "saves_pa": round(blended_saves, 3),
+        "saves_contrib": round(saves_contrib, 3),
+        "w_saves_current": round(w_saves, 4),
+        "w_saves_prior": round(1.0 - w_saves, 4),
+        "cs_raw": round(team_cs_rate, 4),
+        "cs_after_fixture": round(cs_after, 4),
+        "personal_prior_cs": (
+            round(float(personal_prior_cs), 4)
+            if personal_prior_cs is not None
+            else None
+        ),
+    }
+
+
+def blend_weights(form_apps: float) -> tuple[float, float]:
+    """L6 formunu örneklemle büyüt: 1 maç ~%20, 4 maç ~%30, 6 maç %30."""
+    apps = max(0.0, min(float(form_apps or 0.0), 6.0))
+    form_weight = min(
+        W_FORM_DEFAULT,
+        apps / (apps + FORM_PRIOR_MATCHES),
+    )
+    return form_weight, 1.0 - form_weight
+
+
+def _recency_multiplier(form_apps: float, form_matches: float) -> float:
+    recent_matches = max(1.0, float(form_matches or 0))
+    recent_presence = min(1.0, max(0.0, form_apps) / recent_matches)
+    return 0.65 + 0.35 * recent_presence
+
+
+def recency_for_projection(
+    form_apps: float,
+    form_matches: float,
+    *,
+    preseason: bool = False,
+) -> float:
+    """Yeni sezon maçı yoksa geçen sezonun L6'sı bu haftanın XI sinyali değildir."""
+    if preseason:
+        return 1.0
+    return _recency_multiplier(form_apps, form_matches)
+
+
+def _metric_prior_matches(key: str) -> float:
+    if key in COUNT_RATE_KEYS:
+        return COUNT_PRIOR_MATCHES
+    return RARE_PRIOR_MATCHES
+
+
+def _blend_rate_sets(
+    current: dict[str, float],
+    previous: dict[str, float],
+    current_apps: float,
+    *,
+    prior_matches: float = 10.0,
+) -> tuple[dict[str, float], float]:
+    """Az mevcut sezon örneğini silmek yerine önceki sezonla küçültür."""
+    if current.get("apps", 0) <= 0:
+        return previous.copy(), 0.0
+    if previous.get("apps", 0) <= 0:
+        return current.copy(), 1.0
+
+    default_weight = max(0.0, min(1.0, current_apps / (current_apps + prior_matches)))
+    out: dict[str, float] = {}
+    for key in current:
+        if key in ("apps", "apps_60"):
+            continue
+        key_prior = _metric_prior_matches(key) if prior_matches >= 8 else prior_matches
+        weight = max(0.0, min(1.0, current_apps / (current_apps + key_prior)))
+        out[key] = weight * float(current.get(key, 0.0)) + (1.0 - weight) * float(
+            previous.get(key, 0.0)
+        )
+    out["apps"] = current_apps
+    out["apps_60"] = default_weight * float(current.get("apps_60", 0.0))
+    return out, default_weight
+
+
+def _position_prior_rates(position: str) -> dict[str, float]:
+    """Tek maçlık CS/gol gürültüsünü küçültmek için mevki nötr prior."""
+    rates = _empty_rates()
+    rates.update(
+        {
+            "apps": 8.0,
+            "apps_60": 7.0,
+            "share_60": 0.85,
+            "min_per_app": 75.0,
+            "cs_rate": 0.28 if position in ("GK", "DF") else (0.25 if position == "MF" else 0.0),
+            "ga_pa": 1.25 if position in ("GK", "DF") else 0.0,
+            "saves_pa": 3.0 if position == "GK" else 0.0,
+            "gls_pa": {"GK": 0.0, "DF": 0.05, "MF": 0.12, "FW": 0.28}.get(position, 0.1),
+            "ast_pa": {"GK": 0.0, "DF": 0.06, "MF": 0.12, "FW": 0.12}.get(position, 0.08),
+            "rating": 6.8,
+        }
+    )
+    return rates
+
+
+def shrink_small_sample_rates(
+    rates: dict[str, float],
+    position: str,
+    *,
+    prior_matches: float = 8.0,
+) -> tuple[dict[str, float], float]:
+    """1-3 maçlık örneklemi mevki prior'una doğru küçültür."""
+    apps = float(rates.get("apps") or 0.0)
+    if apps <= 0:
+        return rates, 0.0
+    if apps >= 4:
+        return rates, 1.0
+    prior = _position_prior_rates(position)
+    return _blend_rate_sets(rates, prior, apps, prior_matches=prior_matches)
+
+
+def leftover_tff_season(tff_minutes: float, form_apps: float) -> bool:
+    """TFF dakikası henüz sıfırlanmamış tam sezon kaydı gibi duruyorsa True."""
+    return float(tff_minutes or 0.0) >= 900.0 and float(form_apps or 0.0) < 3.0
+
+
+def estimate_play_probability(row: pd.Series | dict[str, Any]) -> float:
+    """Bu hafta oynama ihtimali: form, TFF dakikası, kullanılabilirlik ve kaleci rotasyonu."""
+    get = row.get if hasattr(row, "get") else lambda k, d=None: row[k] if k in row.index else d
+    status = str(get("availability") or "").strip().upper()
+    if status in {"INJURED", "SUSPENDED", "UNAVAILABLE", "OUT"}:
+        return 0.0
+
+    form_apps = float(get("form_apps") or 0.0)
+    min_per_app = float(get("min_per_app") or 0.0)
+    tff_minutes = float(get("tff_minutes") or 0.0)
+    tff_starts = float(get("tff_starts") or 0.0)
+    current_minutes = float(get("current_minutes") or 0.0)
+    fotmob_starts = float(get("fotmob_recent_starts") or 0.0)
+    fotmob_played = float(get("fotmob_recent_played") or 0.0)
+    fotmob_matches = float(get("fotmob_recent_matches") or 0.0)
+    gk_start = float(get("gk_start_probability") or 1.0)
+    position = str(get("position") or "").upper()
+    price_m = float(get("price_m") or 0.0)
+    friendly_min = float(get("friendly_minutes") or 0.0)
+    data_src = str(get("data_src") or "")
+    stale_tff = leftover_tff_season(tff_minutes, form_apps)
+    live_minutes = 0.0 if stale_tff else tff_minutes
+    live_minutes = max(live_minutes, current_minutes)
+    live_starts = 0.0 if stale_tff else tff_starts
+    current_appearance = (
+        form_apps >= 1.0 or live_starts >= 1.0 or live_minutes >= 45.0
+    )
+
+    if live_starts >= 1 or live_minutes >= 60:
+        base = 0.88 if live_minutes >= 75 else 0.78
+        if form_apps >= 1 and min_per_app >= 45:
+            base = max(base, 0.72 + 0.04 * min(form_apps, 4.0))
+    elif form_apps >= 4 and min_per_app >= 60:
+        base = 0.90
+    elif form_apps >= 1 and min_per_app >= 45:
+        base = 0.72 + 0.04 * min(form_apps, 4.0)
+    elif fotmob_matches > 0:
+        base = 0.55 + 0.35 * (fotmob_starts / max(fotmob_matches, 1.0))
+        base = max(base, 0.45 + 0.25 * (fotmob_played / max(fotmob_matches, 1.0)))
+    elif data_src == "external_prior":
+        if friendly_min >= 45:
+            base = 0.94 if price_m >= 8 else 0.88
+        elif price_m >= 10:
+            base = 0.93
+        elif price_m >= 8:
+            base = 0.88
+        elif price_m >= 6.5:
+            base = 0.78
+        else:
+            base = 0.62
+    elif min_per_app >= 70:
+        base = 0.80
+    else:
+        base = 0.55
+
+    avail_pct = get("avail_pct")
+    try:
+        avail_pct_f = float(avail_pct) if avail_pct is not None and pd.notna(avail_pct) else None
+    except (TypeError, ValueError):
+        avail_pct_f = None
+    base *= availability_multiplier(status, avail_pct_f)
+    if position == "GK":
+        base *= max(0.05, min(1.0, gk_start))
+        if not current_appearance:
+            base *= 0.50
+    return float(max(0.05, min(0.97, base)))
+
+
+def build_player_table(
+    current: pd.DataFrame,
+    prev: pd.DataFrame,
+    form_cs: dict[str, float],
+    base_cs: dict[str, float],
+    meta: dict[str, Any] | None = None,
+) -> pd.DataFrame:
+    """
+    Form = `current` (L6–L8 lineups veya sezon proxy).
+    Baz = mevcut sezon + önceki sezon örnek-büyüklüğü kontrollü karışım.
+    projected = w_form * form_pts + w_base * base_pts
+    """
+    meta = meta or {}
+    current_season: pd.DataFrame = meta.get("current_season_df")
+    if current_season is None or not isinstance(current_season, pd.DataFrame):
+        current_season = pd.DataFrame()
+    fixture_context: dict[str, dict[str, Any]] = meta.get("fixture_context") or {}
+
+    rows: list[dict[str, Any]] = []
+
+    def index_by_player(df: pd.DataFrame) -> dict[str, pd.Series]:
+        out: dict[str, pd.Series] = {}
+        if df is None or df.empty:
+            return out
+        for _, r in df.iterrows():
+            key = normalize_name(str(r.get("player", "")))
+            if not key:
+                continue
+            existing = out.get(key)
+            sample = float(r.get("mp") or 0) * 10000 + float(r.get("minutes") or 0)
+            existing_sample = (
+                float(existing.get("mp") or 0) * 10000
+                + float(existing.get("minutes") or 0)
+                if existing is not None
+                else -1.0
+            )
+            if sample > existing_sample:
+                out[key] = r
+        return out
+
+    form_idx = index_by_player(current)
+    cur_idx = index_by_player(current_season)
+    prev_idx = index_by_player(prev)
+
+    all_keys = sorted(set(form_idx) | set(cur_idx) | set(prev_idx))
+
+    for key in all_keys:
+        form_row = form_idx.get(key)
+        cur = cur_idx.get(key)
+        pr = prev_idx.get(key)
+        sample = form_row if form_row is not None else (cur if cur is not None else pr)
+        if sample is None:
+            continue
+        player = str(sample.get("player", ""))
+        squad = str(
+            (form_row if form_row is not None else sample).get("squad", "")
+            or sample.get("squad", "")
+        )
+        pos_raw = (form_row if form_row is not None else sample).get("pos")
+        if (pos_raw is None or str(pos_raw) in ("", "nan")) and cur is not None:
+            pos_raw = cur.get("pos")
+        if (pos_raw is None or str(pos_raw) in ("", "nan")) and pr is not None:
+            pos_raw = pr.get("pos")
+        position = map_position(pos_raw)
+        if not position and pos_raw in ("GK", "DF", "MF", "FW"):
+            position = str(pos_raw)
+        if not position:
+            continue
+
+        form_rates = _row_rates(form_row) if form_row is not None else _empty_rates()
+        form_apps = form_rates["apps"]
+        form_minutes = float(form_row.get("minutes") or 0) if form_row is not None else 0.0
+
+        cur_apps = float(cur.get("mp") or 0) if cur is not None else 0.0
+        prev_apps = float(pr.get("mp") or 0) if pr is not None else 0.0
+        cur_minutes = float(cur.get("minutes") or 0) if cur is not None else 0.0
+        prev_minutes = float(pr.get("minutes") or 0) if pr is not None else 0.0
+        current_apps = max(form_apps, cur_apps)
+        current_minutes = max(form_minutes, cur_minutes)
+        established_sl = max(prev_apps, cur_apps if cur_apps >= ESTABLISHED_SL_APPS else 0.0)
+        current_sample = effective_match_sample(current_apps, current_minutes)
+        cur_rates = _row_rates(cur) if cur is not None else _empty_rates()
+        prev_rates = _row_rates(pr) if pr is not None else _empty_rates()
+        if cur_rates.get("apps", 0) > 0 and prev_rates.get("apps", 0) > 0:
+            base_rates, season_weight = _blend_rate_sets(
+                cur_rates, prev_rates, cur_apps
+            )
+            base_src = f"current+prev ({season_weight:.0%} current)"
+        elif cur_rates.get("apps", 0) > 0:
+            base_rates, sample_w = shrink_small_sample_rates(cur_rates, position)
+            base_src = (
+                "current_season"
+                if sample_w >= 0.999
+                else f"current_shrunk ({sample_w:.0%} observed)"
+            )
+        elif prev_rates.get("apps", 0) > 0:
+            base_rates, sample_w = shrink_small_sample_rates(prev_rates, position)
+            base_src = (
+                "prev_season"
+                if sample_w >= 0.999
+                else f"prev_shrunk ({sample_w:.0%} observed)"
+            )
+        elif form_row is not None:
+            base_rates, sample_w = shrink_small_sample_rates(form_rates, position)
+            base_src = (
+                "form_only"
+                if sample_w >= 0.999
+                else f"form_shrunk ({sample_w:.0%} observed)"
+            )
+        else:
+            continue
+
+        if (form_rates.get("xg_pa") or 0) <= 0 and (base_rates.get("xg_pa") or 0) > 0:
+            form_rates["xg_pa"] = base_rates["xg_pa"]
+            form_rates["xa_pa"] = base_rates.get("xa_pa") or 0.0
+        for k in ("key_passes_pa", "sot_pa", "bcc_pa", "rating"):
+            if (form_rates.get(k) or 0) <= 0 and (base_rates.get(k) or 0) > 0:
+                form_rates[k] = base_rates[k]
+
+        form_for_points = soft_early_form_rates(
+            form_rates, base_rates, form_apps, prev_apps, position
+        )
+        form_mpa = float(form_rates.get("min_per_app") or 0.0)
+        if (
+            form_mpa < MIN_FORM_MINUTES_FOR_RATES
+            and form_minutes < 150
+            and base_rates.get("apps", 0) >= 6
+            and base_rates.get("min_per_app", 0) >= 45
+        ):
+            form_for_points = {
+                **base_rates,
+                "apps": max(form_rates.get("apps") or 0.0, 1.0),
+            }
+
+        team_form_cs = _lookup_cs(squad, form_cs)
+        team_base_cs = _lookup_cs(squad, base_cs)
+        fixture = lookup_fixture_context(squad, fixture_context)
+        fx_kwargs = fixture_model_kwargs(fixture)
+        fixture_attack = float(fx_kwargs["attack_mult"])
+        fixture_cs = float(fx_kwargs["cs_mult"])
+
+        form_pts = expected_points_from_rates(
+            form_for_points,
+            position,
+            team_form_cs,
+            appearance=1.0,
+            **fx_kwargs,
+        )
+        base_pts = expected_points_from_rates(
+            base_rates,
+            position,
+            team_base_cs,
+            appearance=1.0,
+            **fx_kwargs,
+        )
+
+        if form_apps <= 0:
+            w_f, w_b = 0.0, 1.0
+        elif current_apps > 0 and current_apps <= EARLY_SEASON_FORM_CAP_APPS:
+            w_f, w_b = 0.0, 1.0
+        else:
+            w_f, w_b = blend_weights(form_apps)
+
+        projected = w_f * form_pts + w_b * base_pts
+
+        recent_matches = max(1.0, float(meta.get("form_matches") or 6))
+        early = bool(meta.get("early_season", meta.get("preseason")))
+        form_from_requested = meta.get("form_season_start") == meta.get("requested_start")
+        if current_apps > 0 and current_apps <= EARLY_SEASON_FORM_CAP_APPS:
+            recency_mult = 1.0
+        elif cur_rates.get("apps", 0) > 0 and not current.empty:
+            recency_mult = recency_for_projection(
+                form_apps,
+                recent_matches,
+                preseason=bool(meta.get("preseason")),
+            )
+            projected *= recency_mult
+        elif (
+            early
+            and form_from_requested
+            and form_apps <= 0
+            and not bool(meta.get("preseason"))
+        ):
+            recency_mult = _recency_multiplier(0.0, recent_matches)
+            projected *= recency_mult
+        else:
+            recency_mult = 1.0
+
+        if base_rates.get("min_per_app", 0) < 20 and form_rates.get("min_per_app", 0) < 20:
+            projected *= 0.35
+
+        show_rates = form_for_points if form_for_points.get("min_per_app", 0) >= 45 else base_rates
+        cs_raw = float(
+            team_base_cs
+            if team_base_cs is not None
+            else (team_form_cs if team_form_cs is not None else (base_rates.get("cs_rate") or 0.0))
+        )
+        cs_after_fixture = blend_cs_probability(
+            cs_raw,
+            cs_mult=fixture_cs,
+            p_cs=fx_kwargs.get("p_cs"),
+        )
+        saves_pa = float(show_rates.get("saves_pa") or base_rates.get("saves_pa") or 0.0)
+        prior_saves_pa = float(prev_rates.get("saves_pa") or 0.0)
+        current_saves_pa = float(
+            cur_rates.get("saves_pa")
+            or form_rates.get("saves_pa")
+            or 0.0
+        )
+        w_saves_current = 0.0
+        if position == "GK":
+            w_saves_current = season_sample_weight(
+                current_sample, GK_SAVES_PRIOR_MATCHES
+            )
+            if prior_saves_pa > 0 or current_saves_pa > 0:
+                saves_pa = (
+                    w_saves_current * current_saves_pa
+                    + (1.0 - w_saves_current) * (
+                        prior_saves_pa if prior_saves_pa > 0 else current_saves_pa
+                    )
+                )
+                show_rates = {**show_rates, "saves_pa": saves_pa}
+                if current_apps <= EARLY_SEASON_FORM_CAP_APPS and (
+                    prior_saves_pa > 0 or prev_apps >= 1
+                ):
+                    gk_pack = blend_goalkeeper_components(
+                        current_saves_pa=current_saves_pa,
+                        prior_saves_pa=prior_saves_pa if prior_saves_pa > 0 else saves_pa,
+                        current_sample=current_sample,
+                        team_cs=cs_raw,
+                        personal_prior_cs=float(prev_rates.get("cs_rate") or 0.0) or None,
+                        share_60=float(
+                            show_rates.get("share_60")
+                            or base_rates.get("share_60")
+                            or 1.0
+                        ),
+                        min_per_app=float(
+                            show_rates.get("min_per_app")
+                            or base_rates.get("min_per_app")
+                            or 90.0
+                        ),
+                        fixture_attack_mult=fixture_attack,
+                        fixture_cs_mult=fixture_cs,
+                        rating=float(show_rates.get("rating") or base_rates.get("rating") or 0.0),
+                        save_mult=float(fx_kwargs.get("save_mult") or 1.0),
+                        lambda_for=fx_kwargs.get("lambda_for"),
+                        lambda_against=fx_kwargs.get("lambda_against"),
+                        p_cs=fx_kwargs.get("p_cs"),
+                        team_goal_rate=fx_kwargs.get("team_goal_rate"),
+                    )
+                    projected = float(gk_pack["projected_pts"]) * recency_mult
+                    saves_pa = float(gk_pack["saves_pa"])
+                    saves_contrib = float(gk_pack["saves_contrib"])
+                    w_saves_current = float(gk_pack["w_saves_current"])
+                    base_pts = float(gk_pack["projected_pts"])
+                else:
+                    saves_contrib = (
+                        (saves_pa / 3.0)
+                        * SAVE_POINTS_PER_3
+                        * float(fx_kwargs.get("save_mult") or 1.0)
+                    )
+            else:
+                saves_contrib = (
+                    (saves_pa / 3.0)
+                    * SAVE_POINTS_PER_3
+                    * float(fx_kwargs.get("save_mult") or 1.0)
+                )
+        else:
+            saves_contrib = 0.0
+
+        reason_bits = []
+        if position in ("DF", "GK"):
+            reason_bits.append(
+                f"CS~{cs_after_fixture:.0%} (baz {cs_raw:.0%}, fikstür×{fixture_cs:.2f})"
+            )
+            if position == "GK" and saves_pa > 0:
+                if prior_saves_pa > 0 and current_sample > 0:
+                    reason_bits.append(
+                        f"kurtarış ~{saves_pa:.1f}/maç "
+                        f"(current {current_saves_pa:.1f} / prior {prior_saves_pa:.1f}, "
+                        f"ağırlık {w_saves_current:.0%}/{1.0 - w_saves_current:.0%}; "
+                        f"~{saves_contrib:.2f}p)"
+                    )
+                else:
+                    reason_bits.append(
+                        f"kurtarış ~{saves_pa:.1f}/maç (~{saves_contrib:.2f}p)"
+                    )
+            if form_rates.get("int_p90", 0) > 0:
+                reason_bits.append(f"Int/90={form_rates['int_p90']:.1f}")
+        gls_show = show_rates.get("gls_pa") or 0
+        ast_show = show_rates.get("ast_pa") or 0
+        xg_show = show_rates.get("xg_pa") or 0
+        xa_show = show_rates.get("xa_pa") or 0
+        exp_g = _blend_attack(
+            gls_show,
+            xg_show,
+            (show_rates.get("sot_pa") or 0) * SOT_TO_GOAL,
+            show_rates.get("apps"),
+        )
+        exp_a = _blend_attack(
+            ast_show,
+            xa_show,
+            max(
+                (show_rates.get("key_passes_pa") or 0) * KEYPASS_TO_ASSIST,
+                (show_rates.get("bcc_pa") or 0) * BCC_TO_ASSIST,
+            ),
+            show_rates.get("apps"),
+        )
+        if exp_g + exp_a + gls_show + ast_show > 0:
+            reason_bits.append(
+                f"beklenen G/A={exp_g:.2f}/{exp_a:.2f} (ham {gls_show:.2f}/{ast_show:.2f}, xG/xA {xg_show:.2f}/{xa_show:.2f})"
+            )
+            if form_apps <= 2 and prev_apps >= ESTABLISHED_SL_APPS:
+                reason_bits.append(
+                    f"açılış G/A yumuşatıldı (prev SL {prev_apps:.0f} maç)"
+                )
+        share = show_rates.get("share_60") or base_rates.get("share_60") or 0
+        reason_bits.append(f"60+ dk ~{share:.0%} → {1 + share:.1f}p dakika")
+        if fixture:
+            venue = "iç saha" if fixture.get("home") else "deplasman"
+            reason_bits.append(f"{fixture.get('opponent')} ({venue})")
+        if current_apps <= EARLY_SEASON_FORM_CAP_APPS and current_apps > 0:
+            reason_bits.append(
+                f"erken sezon baz ({current_sample:.1f} maç-eş; L6 çift sayım yok)"
+            )
+        else:
+            reason_bits.append(f"L6 katılım {form_apps:.0f}/{recent_matches:.0f}")
+        reason_bits.append(f"blend {w_f:.0%}/{w_b:.0%} ({base_src})")
+        if fx_kwargs.get("lambda_for") is not None:
+            reason_bits.append(
+                f"maç modeli λ {float(fx_kwargs['lambda_for']):.2f}-"
+                f"{float(fx_kwargs.get('lambda_against') or 0):.2f} "
+                f"(CS P={float(fx_kwargs.get('p_cs') or 0):.0%})"
+            )
+
+        week_pts = [float(projected)]
+        for extra in fixture_horizon_list(fixture)[1:]:
+            extra_kwargs = fixture_model_kwargs(extra)
+            extra_form = expected_points_from_rates(
+                form_for_points,
+                position,
+                team_form_cs,
+                appearance=1.0,
+                **extra_kwargs,
+            )
+            extra_base = expected_points_from_rates(
+                base_rates,
+                position,
+                team_base_cs,
+                appearance=1.0,
+                **extra_kwargs,
+            )
+            extra_pts = (w_f * extra_form + w_b * extra_base) * recency_mult
+            if base_rates.get("min_per_app", 0) < 20 and form_rates.get("min_per_app", 0) < 20:
+                extra_pts *= 0.35
+            week_pts.append(float(extra_pts))
+        while len(week_pts) < 3:
+            week_pts.append(week_pts[-1] if week_pts else 0.0)
+        horizon_pts = weighted_horizon_points(week_pts)
+
+        rows.append(
+            {
+                "player": player,
+                "team": squad,
+                "position": position,
+                "pos_raw": pos_raw,
+                "form_apps": form_apps,
+                "current_apps": current_apps,
+                "current_minutes": current_minutes,
+                "prev_apps": prev_apps,
+                "prev_minutes": prev_minutes,
+                "established_sl_apps": established_sl,
+                "base_apps": base_rates.get("apps", 0.0),
+                "form_pts": round(form_pts, 3),
+                "base_pts": round(base_pts, 3),
+                "projected_pts": round(projected, 3),
+                "w_form": w_f,
+                "w_base": w_b,
+                "base_src": base_src,
+                "data_src": "super_lig",
+                "int_p90": round(
+                    form_rates.get("int_p90", 0.0) or base_rates.get("int_p90", 0.0), 2
+                ),
+                "tkl_p90": round(
+                    form_rates.get("tkl_p90", 0.0) or base_rates.get("tkl_p90", 0.0), 2
+                ),
+                "gls_pa": round(show_rates.get("gls_pa", 0.0) or base_rates.get("gls_pa", 0.0), 3),
+                "ast_pa": round(show_rates.get("ast_pa", 0.0) or base_rates.get("ast_pa", 0.0), 3),
+                "xg_pa": round(show_rates.get("xg_pa", 0.0) or base_rates.get("xg_pa", 0.0), 3),
+                "xa_pa": round(show_rates.get("xa_pa", 0.0) or base_rates.get("xa_pa", 0.0), 3),
+                "saves_pa": round(saves_pa, 3),
+                "prior_saves_pa": round(prior_saves_pa, 3),
+                "current_saves_pa": round(current_saves_pa, 3),
+                "w_saves_current": round(w_saves_current, 4) if position == "GK" else 0.0,
+                "share_60": round(show_rates.get("share_60") or base_rates.get("share_60") or 0.0, 3),
+                "min_per_app": round(
+                    show_rates.get("min_per_app") or base_rates.get("min_per_app") or 0.0,
+                    1,
+                ),
+                "team_cs_form": team_form_cs,
+                "team_cs_base": team_base_cs,
+                "cs_raw": round(cs_raw, 4),
+                "cs_after_fixture": round(cs_after_fixture, 4),
+                "saves_contrib": round(saves_contrib, 3),
+                "fixture_opponent": fixture.get("opponent") or "",
+                "fixture_home": fixture.get("home"),
+                "fixture_attack_mult": fixture_attack,
+                "fixture_cs_mult": fixture_cs,
+                "fixture_save_mult": round(float(fx_kwargs.get("save_mult") or 1.0), 4),
+                "fixture_lambda_for": fx_kwargs.get("lambda_for"),
+                "fixture_lambda_against": fx_kwargs.get("lambda_against"),
+                "fixture_p_cs": fx_kwargs.get("p_cs"),
+                "pts_week0": round(week_pts[0], 3),
+                "pts_week1": round(week_pts[1], 3),
+                "pts_week2": round(week_pts[2], 3),
+                "horizon_pts": round(horizon_pts, 3),
+                "fixture_cs_note": (
+                    f"baz CS {cs_raw:.0%} × {fixture_cs:.2f} → {cs_after_fixture:.0%}"
+                    if position in ("GK", "DF")
+                    else ""
+                ),
+                "recency_mult": recency_mult,
+                "reason": "; ".join(reason_bits),
+                "player_key": key,
+            }
+        )
+
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return out
+    return out.sort_values("projected_pts", ascending=False).reset_index(drop=True)
+
+
+def _lookup_cs(squad: str, cs_map: dict[str, float]) -> float | None:
+    if not cs_map or not squad:
+        return None
+    n = normalize_name(squad)
+    for k, v in cs_map.items():
+        if normalize_name(k) == n:
+            return float(v)
+    for k, v in cs_map.items():
+        nk = normalize_name(k)
+        if n in nk or nk in n:
+            return float(v)
+    return None
+
+
+def lookup_fixture_context(
+    squad: str,
+    context: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    if not squad or not context:
+        return {}
+    normalized = normalize_name(squad)
+    if normalized in context:
+        return context[normalized]
+    for key, value in context.items():
+        if normalized in key or key in normalized:
+            return value
+    generic = {"fk", "jk", "spor", "sportif", "faaliyetler", "istanbul"}
+    tokens = set(normalized.split()) - generic
+    best: tuple[float, dict[str, Any]] | None = None
+    for key, value in context.items():
+        other = set(key.split()) - generic
+        if not tokens or not other:
+            continue
+        score = len(tokens & other) / len(tokens | other)
+        if score >= 0.5 and (best is None or score > best[0]):
+            best = (score, value)
+    return best[1] if best else {}
+
+
+def fixture_model_kwargs(fixture: dict[str, Any] | None) -> dict[str, Any]:
+    fx = fixture or {}
+    cs_mult = float(fx.get("cs_mult") or 1.0)
+    return {
+        "attack_mult": float(fx.get("attack_mult") or 1.0),
+        "cs_mult": max(FIXTURE_CS_FLOOR, min(FIXTURE_CS_CEILING, cs_mult)),
+        "save_mult": float(fx.get("save_mult") or 1.0),
+        "lambda_for": fx.get("lambda_for"),
+        "lambda_against": fx.get("lambda_against"),
+        "p_cs": fx.get("p_cs"),
+        "team_goal_rate": fx.get("team_goal_rate"),
+    }
+
+
+def fixture_horizon_list(fixture: dict[str, Any] | None) -> list[dict[str, Any]]:
+    fx = fixture or {}
+    horizon = fx.get("horizon")
+    if isinstance(horizon, list) and horizon:
+        return [item for item in horizon if isinstance(item, dict)]
+    if fx:
+        return [fx]
+    return [{}]
+
+
+def weighted_horizon_points(
+    week_pts: list[float],
+    weights: tuple[float, ...] = HORIZON_WEIGHTS,
+) -> float:
+    total_w = 0.0
+    total = 0.0
+    for idx, weight in enumerate(weights):
+        pts = float(week_pts[idx]) if idx < len(week_pts) else float(week_pts[-1] if week_pts else 0.0)
+        total += float(weight) * pts
+        total_w += float(weight)
+    return total / total_w if total_w else 0.0
+
+
+def availability_multiplier(status: str | None, percent: float | None = None) -> float:
+    raw = str(status or "").strip().upper()
+    if not raw:
+        return 1.0
+    base = AVAIL_MULT.get(raw, 1.0)
+    if percent is not None and percent > 0 and raw in ("DOUBTFUL", "INJURED"):
+        return max(0.08, min(1.0, percent / 100.0))
+    return base
+
+
+def apply_goalkeeper_start_probabilities(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Aynı takımdaki kalecileri ilk-11 olasılığıyla ayır.
+
+    Bir yedek kalecinin tek eski temiz sayfası, uzun dönem takım birincisini
+    geçmemeli. Önce güncel TFF dakikası, sonra form lineups, son olarak aynı
+    kulüpteki geçmiş dakika kullanılır. Yeterli kanıt yoksa nötr bırakılır.
+    """
+    out = df.copy()
+    if out.empty or not {"team", "position", "projected_pts"}.issubset(out.columns):
+        return out
+
+    out["gk_start_probability"] = 1.0
+    out["gk_start_source"] = ""
+    is_gk = out["position"].astype(str).str.upper().eq("GK")
+    for _, idx in out[is_gk].groupby(out.loc[is_gk, "team"].map(normalize_name)).groups.items():
+        members = list(idx)
+        if len(members) < 2:
+            continue
+
+        group = out.loc[members]
+        tff_minutes = pd.to_numeric(
+            group.get("tff_minutes", pd.Series(0.0, index=members)),
+            errors="coerce",
+        ).fillna(0.0)
+        form_apps = pd.to_numeric(
+            group.get("form_apps", pd.Series(0.0, index=members)),
+            errors="coerce",
+        ).fillna(0.0)
+        base_apps = pd.to_numeric(
+            group.get("base_apps", pd.Series(0.0, index=members)),
+            errors="coerce",
+        ).fillna(0.0)
+        min_per_app = pd.to_numeric(
+            group.get("min_per_app", pd.Series(0.0, index=members)),
+            errors="coerce",
+        ).fillna(0.0)
+        current_minutes = pd.to_numeric(
+            group.get("current_minutes", pd.Series(0.0, index=members)),
+            errors="coerce",
+        ).fillna(0.0)
+        stale = (tff_minutes >= 900) & (form_apps < 3)
+        live_tff = tff_minutes.where(~stale, 0.0)
+        live_minutes = pd.concat([live_tff, current_minutes], axis=1).max(axis=1)
+
+        if float(live_minutes.max()) >= 45:
+            evidence, source = live_minutes, "güncel TFF dakika"
+        elif float(form_apps.max()) >= 1:
+            evidence, source = form_apps * min_per_app.clip(lower=45.0) / 90.0, "son form lineups"
+        elif float(base_apps.max()) >= 8:
+            evidence, source = base_apps * min_per_app.clip(lower=45.0) / 90.0, "geçen sezon dakika"
+        else:
+            continue
+
+        leader = float(evidence.max())
+        if leader <= 0:
+            continue
+        probability = (0.05 + 0.90 * evidence / leader).clip(upper=0.95)
+        out.loc[members, "gk_start_probability"] = probability
+        out.loc[members, "gk_start_source"] = source
+
+    return out
+
+
+def apply_context_adjustments(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Yeni imza: son lig G/A + xG/xA (gol/asist kapasitesi korunur).
+    Sakat/cezalı TFF availability ile kırpılır.
+    """
+    out = df.copy()
+    if "projected_pts" not in out.columns:
+        return out
+    out["raw_pts"] = pd.to_numeric(out["projected_pts"], errors="coerce").fillna(0.0)
+    form_apps = pd.to_numeric(
+        out.get("form_apps", pd.Series(0.0, index=out.index)), errors="coerce"
+    ).fillna(0.0)
+    pts = out["raw_pts"].copy()
+
+    zeros = pd.Series(0.0, index=out.index)
+    current_apps = pd.to_numeric(
+        out.get("current_apps", zeros), errors="coerce"
+    ).fillna(0.0)
+    tff_minutes = pd.to_numeric(out.get("tff_minutes", zeros), errors="coerce").fillna(0.0)
+    tff_starts = pd.to_numeric(out.get("tff_starts", zeros), errors="coerce").fillna(0.0)
+    tff_points = pd.to_numeric(out.get("tff_points", zeros), errors="coerce").fillna(0.0)
+    tff_ppm = pd.to_numeric(out.get("tff_ppm", zeros), errors="coerce").fillna(0.0)
+    price_m = pd.to_numeric(out.get("price_m", zeros), errors="coerce").fillna(0.0)
+    position = out.get("position", pd.Series("", index=out.index)).astype(str).str.upper()
+    status = (
+        out["availability"].astype(str).str.strip().str.upper()
+        if "availability" in out.columns
+        else pd.Series("", index=out.index)
+    )
+    if "fotmob_injury" in out.columns:
+        inj = out["fotmob_injury"].isin((True, "True", "true", 1, "1"))
+        status = status.mask(inj, "INJURED")
+        out["availability"] = status
+    inferred_apps = (tff_minutes / 85.0).where(tff_minutes >= 60.0, 0.0)
+    inferred_apps = inferred_apps.where(tff_minutes < 60.0, inferred_apps.clip(lower=1.0))
+    official_apps = pd.concat(
+        [tff_starts, tff_minutes / 75.0, inferred_apps], axis=1
+    ).max(axis=1)
+    leftover_full_season = (tff_minutes >= 900) & (form_apps < 3)
+    raw_official_ppg = tff_ppm.where(
+        tff_ppm > 0,
+        tff_points / official_apps.where(official_apps > 0, 1.0),
+    )
+    official_ppg = pd.Series(
+        [
+            shrink_official_ppg(
+                observed,
+                model,
+                apps,
+                price_m=price,
+                position=pos,
+            )
+            for observed, model, apps, price, pos in zip(
+                raw_official_ppg, pts, official_apps, price_m, position
+            )
+        ],
+        index=out.index,
+        dtype=float,
+    )
+    early_prior = pd.Series(float(TFF_EARLY_PRIOR_MATCHES), index=out.index)
+    live_official = (tff_minutes >= 60.0) & ~leftover_full_season
+    early_prior = early_prior.mask(live_official & (official_apps >= 1.8), 1.5)
+    early_prior = early_prior.mask(
+        live_official & (official_apps < 1.8) & (price_m >= 9.5),
+        4.0,
+    )
+    early_prior = early_prior.mask(
+        live_official & (official_apps < 1.8) & position.eq("GK"),
+        2.5,
+    )
+    official_weight = (official_apps / 30.0).clip(lower=0.0, upper=0.35)
+    early_official = (tff_minutes > 0) & (tff_minutes < 900)
+    official_weight = official_weight.where(
+        ~early_official,
+        (official_apps / (official_apps + early_prior)).clip(
+            lower=0.0, upper=0.72
+        ),
+    )
+    thin_current = current_apps <= EARLY_SEASON_FORM_CAP_APPS
+    official_weight = official_weight.where(
+        ~thin_current,
+        official_weight.clip(upper=0.72),
+    )
+    has_official = (tff_minutes > 0) & ~leftover_full_season
+    pts = pts.where(
+        ~has_official,
+        (1.0 - official_weight) * pts + official_weight * official_ppg,
+    )
+    tff_xg = pd.to_numeric(out.get("tff_xg", zeros), errors="coerce").fillna(0.0)
+    tff_xa = pd.to_numeric(out.get("tff_xa", zeros), errors="coerce").fillna(0.0)
+    xg_pa = pd.to_numeric(out.get("xg_pa", zeros), errors="coerce").fillna(0.0)
+    xa_pa = pd.to_numeric(out.get("xa_pa", zeros), errors="coerce").fillna(0.0)
+    live_tff_minutes = tff_minutes.where(~leftover_full_season, 0.0)
+    n90 = live_tff_minutes / 90.0
+    safe_n90 = n90.where(n90 > 0, 1.0)
+    xg_from_tff = (tff_xg / safe_n90).where((xg_pa <= 0) & (tff_xg > 0) & (n90 > 0), 0.0)
+    xa_from_tff = (tff_xa / safe_n90).where((xa_pa <= 0) & (tff_xa > 0) & (n90 > 0), 0.0)
+    goal_value = position.map(lambda p: float(GOAL_POINTS.get(str(p), GOAL_POINTS["MF"])))
+    xg_boost = (0.55 * xg_from_tff * goal_value).clip(upper=1.5)
+    xa_boost = (0.55 * xa_from_tff * float(ASSIST_POINTS)).clip(upper=1.2)
+    pts = pts + xg_boost.fillna(0.0) + xa_boost.fillna(0.0)
+    if "xg_pa" in out.columns:
+        out["xg_pa"] = xg_pa.where(xg_from_tff <= 0, xg_from_tff)
+    if "xa_pa" in out.columns:
+        out["xa_pa"] = xa_pa.where(xa_from_tff <= 0, xa_from_tff)
+    current_minutes = pd.to_numeric(out.get("current_minutes", zeros), errors="coerce").fillna(0.0)
+    starter_evidence = (
+        (form_apps >= 1)
+        | (current_minutes >= 60)
+        | (((tff_starts >= 1) | (tff_minutes >= 60)) & ~leftover_full_season)
+    )
+    premium_starter = (
+        status.eq("AVAILABLE")
+        & position.isin({"FW", "MF"})
+        & (price_m >= 9.5)
+        & starter_evidence
+    )
+    premium_floor = 3.2 + 0.18 * (price_m - 9.5)
+    pts = pts.where(
+        ~premium_starter,
+        pd.concat([pts, premium_floor], axis=1).max(axis=1),
+    )
+    mid_starter = (
+        status.eq("AVAILABLE")
+        & position.isin({"FW", "MF"})
+        & (price_m >= 5.0)
+        & (price_m < 9.5)
+        & starter_evidence
+    )
+    mid_floor = pd.Series(3.4, index=out.index)
+    pts = pts.where(
+        ~mid_starter,
+        pd.concat([pts, mid_floor], axis=1).max(axis=1),
+    )
+    live_gk = (
+        status.eq("AVAILABLE")
+        & position.eq("GK")
+        & starter_evidence
+    )
+    gk_floor = pd.Series(3.2, index=out.index)
+    pts = pts.where(
+        ~live_gk,
+        pd.concat([pts, gk_floor], axis=1).max(axis=1),
+    )
+    live_tff = (tff_minutes >= 60.0) & ~leftover_full_season & status.eq("AVAILABLE")
+    attack_prod = live_tff & position.isin({"FW", "MF"}) & (tff_points >= 6)
+    attack_cap = pd.Series(6.6, index=out.index).where(official_apps < 1.8, 11.0)
+    attack_floor = (2.5 + 0.24 * raw_official_ppg).clip(upper=attack_cap)
+    pts = pts.where(
+        ~attack_prod,
+        pd.concat([pts, attack_floor], axis=1).max(axis=1),
+    )
+    gk_prod = live_tff & position.eq("GK") & (tff_points >= 1)
+    gk_prod_floor = (2.2 + 0.38 * raw_official_ppg).clip(upper=7.2)
+    pts = pts.where(
+        ~gk_prod,
+        pd.concat([pts, gk_prod_floor], axis=1).max(axis=1),
+    )
+    out["tff_calibration_weight"] = official_weight.where(has_official, 0.0)
+    out["pts_if_plays"] = pts.clip(lower=0.0).round(3)
+    out = apply_goalkeeper_start_probabilities(out)
+
+    play_probs = out.apply(estimate_play_probability, axis=1)
+    out["play_probability"] = play_probs.round(3)
+    out["projected_pts"] = (out["pts_if_plays"] * out["play_probability"]).round(3)
+    raw_week0 = pd.to_numeric(out.get("pts_week0", out["raw_pts"]), errors="coerce").fillna(
+        out["raw_pts"]
+    )
+    cal_ratio = (out["pts_if_plays"] / raw_week0.replace(0, pd.NA)).fillna(1.0)
+    week1 = pd.to_numeric(out.get("pts_week1", out["pts_if_plays"]), errors="coerce").fillna(
+        out["pts_if_plays"]
+    ) * cal_ratio
+    week2 = pd.to_numeric(out.get("pts_week2", out["pts_if_plays"]), errors="coerce").fillna(
+        out["pts_if_plays"]
+    ) * cal_ratio
+    w0, w1, w2 = HORIZON_WEIGHTS
+    horizon_if_plays = (w0 * out["pts_if_plays"] + w1 * week1 + w2 * week2) / (w0 + w1 + w2)
+    out["horizon_pts"] = horizon_if_plays.clip(lower=0.0).round(3)
+    out["selection_pts"] = (horizon_if_plays * out["play_probability"]).clip(lower=0.0).round(3)
+    if "position" in out.columns:
+        is_gk = out["position"].astype(str).str.upper().eq("GK")
+        out["gk_play_prob"] = out["play_probability"].where(is_gk, pd.NA)
+    else:
+        out["gk_play_prob"] = pd.NA
+
+    unavailable = {"INJURED", "SUSPENDED", "UNAVAILABLE", "OUT"}
+    out["selection_eligible"] = ~status.isin(unavailable)
+    out["selection_status"] = status.where(status != "", "UNKNOWN")
+
+    def _note(row: pd.Series) -> str:
+        reason = str(row.get("reason") or "")
+        bits = []
+        if str(row.get("data_src") or "") == "external_prior":
+            bits.append("son lig G/A+xG (gol/asist kapasitesi korunur)")
+            fm = float(row.get("friendly_minutes") or 0)
+            if fm > 0:
+                bits.append(f"yeni kulüp/hazırlık {fm:.0f} dk")
+        st = str(row.get("availability") or "").upper()
+        if st and st not in ("AVAILABLE", "", "NAN"):
+            bits.append(f"TFF durum {st}")
+        if str(row.get("position") or "").upper() == "GK":
+            gk_prob = float(row.get("gk_start_probability") or row.get("gk_play_prob") or 1.0)
+            if gk_prob < 0.99:
+                bits.append(
+                    f"ilk 11 olasılığı ~{gk_prob:.0%} "
+                    f"({row.get('gk_start_source') or 'kaleci rotasyonu'})"
+                )
+            note = str(row.get("fixture_cs_note") or "")
+            if note:
+                bits.append(note)
+            saves = float(row.get("saves_contrib") or 0)
+            if saves > 0:
+                bits.append(f"kurtarış katkısı ~{saves:.2f}p")
+        play_p = float(row.get("play_probability") or 1.0)
+        if play_p < 0.95 and str(row.get("position") or "").upper() != "GK":
+            bits.append(f"oynama ~{play_p:.0%}")
+        h0 = float(row.get("pts_if_plays") or 0)
+        h1 = float(row.get("pts_week1") or h0)
+        if abs(h1 - h0) >= 0.25:
+            bits.append(f"3 hafta ufku {float(row.get('horizon_pts') or h0):.2f}p")
+        if bits:
+            extra = "; ".join(bits)
+            return f"{reason} | {extra}" if reason else extra
+        return reason
+
+    out["reason"] = out.apply(_note, axis=1)
+    return out

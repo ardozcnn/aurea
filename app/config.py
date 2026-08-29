@@ -10,7 +10,18 @@ DATA_DIR = ROOT / "data"
 RAW_DIR = DATA_DIR / "raw"
 MODELS_DIR = ROOT / "models"
 WEB_DIR = ROOT / "web"
-FANTASY_ROOT = Path(os.environ.get("FANTASY_ROOT") or r"C:\Users\Arda\Desktop\Apps\Fantezi Ligi")
+
+
+def _fantasy_root() -> Path:
+    env = os.environ.get("FANTASY_ROOT")
+    if env:
+        return Path(env)
+    if (ROOT / "src" / "optimize.py").exists():
+        return ROOT
+    return Path(r"C:\Users\Arda\Desktop\Apps\Fantezi Ligi")
+
+
+FANTASY_ROOT = _fantasy_root()
 FANTASY_CACHE = DATA_DIR / "fantasy_last.json"
 
 DATASET_BASE = "https://pub-e682421888d945d684bcae8890b0ec20.r2.dev/data"
