@@ -349,6 +349,10 @@ def build_report(row: dict, similar: list[dict], live: dict | None) -> dict[str,
         {"k": "Maç", "v": str(int(apps)) if apps else "—"},
         {"k": "Gol", "v": str(int(goals))},
         {"k": "Asist", "v": str(int(assists))},
+        {"k": "Gol / 90", "v": f"{goals_p90:.2f}".replace(".", ",") if goals_p90 > 0 else "—"},
+        {"k": "Asist / 90", "v": f"{assists_p90:.2f}".replace(".", ",") if assists_p90 > 0 else "—"},
+        {"k": "Gol + asist / 90", "v": f"{contrib_p90:.2f}".replace(".", ",") if contrib_p90 > 0 else "—"},
+        {"k": "Kart", "v": f"{int(yellow)} sarı" + (f", {int(red)} kırmızı" if red else "") if yellow or red else "—"},
     ]
     gap_txt = format_pct(gap) if gap is not None else ""
     headline = verdict_title

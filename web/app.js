@@ -253,10 +253,37 @@ function fact(label, value) {
   return `<div><span>${esc(label)}</span><b>${esc(value)}</b></div>`;
 }
 
+function moneyAmount(value) {
+  if (value == null || value === "") return 0;
+  if (typeof value === "string") {
+    const raw = value.replace(/\s/g, "").replace("€", "").toLowerCase();
+    const million = /mio|million|mill|mil\.?|m$/.test(raw);
+    const thousand = /thousand|bin|k$/.test(raw);
+    const cleaned = raw.replace(/[^\d,.-]/g, "");
+    const normalized = cleaned.includes(",") && cleaned.includes(".")
+      ? cleaned.replaceAll(".", "").replace(",", ".")
+      : /^\d{1,3}(\.\d{3})+$/.test(cleaned)
+        ? cleaned.replaceAll(".", "")
+      : cleaned.replace(",", ".");
+    const parsed = Number(normalized);
+    if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+    if (million) return parsed * 1_000_000;
+    if (thousand) return parsed * 1_000;
+    if (parsed < 1000) return parsed * 1_000_000;
+    return parsed;
+  }
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return n < 1000 ? n * 1_000_000 : n;
+}
+
 function sparkline(history) {
-  const pts = (history || []).filter((h) => Number(h.marketValue) > 0);
-  if (pts.length < 2) return `<p class="sub">Eğri yok.</p>`;
-  const vals = pts.map((h) => Number(h.marketValue));
+  const pts = (history || [])
+    .map((h) => ({ ...h, _value: moneyAmount(h.marketValue) }))
+    .filter((h) => h._value > 0)
+    .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
+  if (pts.length < 2) return `<p class="sub">Etiket geçmişi için yeterli veri yok.</p>`;
+  const vals = pts.map((h) => h._value);
   const w = 640, h = 72;
   const min = Math.min(...vals), max = Math.max(...vals);
   const line = vals.map((v, i) => {
@@ -264,14 +291,16 @@ function sparkline(history) {
     const y = h - 8 - ((v - min) / (max - min || 1)) * (h - 16);
     return `${x},${y}`;
   }).join(" ");
-  const peak = pts.reduce((a, b) => Number(b.marketValue) > Number(a.marketValue) ? b : a);
+  const peak = pts.reduce((a, b) => b._value > a._value ? b : a);
   const last = pts[pts.length - 1];
-  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><polyline fill="none" stroke="#d4b56a" stroke-width="2" points="${line}" /></svg>
-    <div class="spark-meta"><span>Tepe ${esc(fmtEur(peak.marketValue))} · ${esc(fmtDate(peak.date))}</span><span>Güncel ${esc(fmtEur(last.marketValue))} · ${esc(fmtDate(last.date))}</span></div>`;
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="Transfermarkt etiket geçmişi">
+      <polyline fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" points="${line}" />
+    </svg>
+    <div class="spark-meta"><span>Tepe ${esc(fmtEur(peak._value))} · ${esc(fmtDate(peak.date))}</span><span>Güncel ${esc(fmtEur(last._value))} · ${esc(fmtDate(last.date))}</span></div>`;
 }
 
 function fmtEur(n) {
-  const v = Number(n);
+  const v = moneyAmount(n);
   if (!v) return "—";
   if (v >= 1_000_000) {
     let t = (v / 1_000_000).toFixed(1).replace(".", ",");
@@ -283,16 +312,21 @@ function fmtEur(n) {
 }
 
 function histTable(history) {
-  const pts = (history || []).filter((h) => Number(h.marketValue) > 0).slice(-6).reverse();
+  const pts = (history || [])
+    .map((h) => ({ ...h, _value: moneyAmount(h.marketValue) }))
+    .filter((h) => h._value > 0)
+    .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")))
+    .slice(-6)
+    .reverse();
   if (!pts.length) return "";
   return `<table class="mini">
     <thead><tr><th>Tarih</th><th>Kulüp</th><th>Etiket</th></tr></thead>
-    <tbody>${pts.map((h) => `<tr><td>${esc(fmtDate(h.date))}</td><td>${esc(h.clubName || "—")}</td><td>${esc(fmtEur(h.marketValue))}</td></tr>`).join("")}</tbody>
+    <tbody>${pts.map((h) => `<tr><td>${esc(fmtDate(h.date))}</td><td>${esc(h.clubName || "—")}</td><td>${esc(fmtEur(h._value))}</td></tr>`).join("")}</tbody>
   </table>`;
 }
 
 function tmMove(history) {
-  const vals = (history || []).map((h) => Number(h.marketValue || 0)).filter((n) => n > 0);
+  const vals = (history || []).map((h) => moneyAmount(h.marketValue)).filter((n) => n > 0);
   if (vals.length < 2) return "";
   const prev = vals[vals.length - 2];
   const last = vals[vals.length - 1];
@@ -437,7 +471,7 @@ function renderHome(pulse) {
       <form class="spotlight" id="home-search" autocomplete="off">
         <input id="hq" type="search" placeholder="Oyuncu ara" />
       </form>
-      <p class="lede home-lede">Transfermarkt ve Aurea değeri.</p>
+      <p class="lede home-lede">Transfermarkt etiketi ile üretime dayalı Aurea değerini birlikte okuyun.</p>
       <div class="chips">
         ${featured.map((l) => `<a class="chip" href="#/lig/${esc(l.id)}">${leagueCrest(l)}${esc(l.name)}</a>`).join("")}
       </div>
@@ -469,8 +503,8 @@ async function renderSearch(gen) {
   view.innerHTML = `
     <section class="hero center search-hero panel">
       <p class="kicker">Arama</p>
-      <h1>Oyuncu</h1>
-      <form id="ara-form"><input id="aq" value="${esc(q)}" placeholder="İsim" /></form>
+      <h1>Oyuncu Arama</h1>
+      <form id="ara-form"><input id="aq" value="${esc(q)}" placeholder="Oyuncu adı" /></form>
     </section>
     <div id="ara-results" class="list"></div>
   `;
@@ -616,13 +650,19 @@ async function renderPlayer(id, gen) {
     ? `${season.apps} maç · ${season.goals || 0} gol · ${season.assists || 0} asist · ${fmtCount(season.minutes)} dk`
     : "";
   const foot = footLabel(p.foot);
+  const intlLine = [p.intl_caps ? `${p.intl_caps} maç` : "", p.intl_goals ? `${p.intl_goals} gol` : ""].filter(Boolean).join(" · ");
+  const cardLine = [p.yellow_2y ? `${p.yellow_2y} sarı` : "", p.red_2y ? `${p.red_2y} kırmızı` : ""].filter(Boolean).join(" · ");
   const facts = [
+    fact("Mevki", ident.position || p.position),
+    fact("Lig", ident.league || p.league),
     fact("Boy", p.height_in_cm ? `${p.height_in_cm} cm` : ""),
     fact("Ayak", foot === "—" ? "" : foot),
     fact("Uyruk", properCase(p.nationality)),
-    fact("Milli maç", p.intl_caps),
-    fact("Milli gol", p.intl_goals),
+    fact("Doğum yeri", properCase(p.birthplace)),
+    fact("Milli takım", intlLine),
     fact("Sözleşme", p.contract_years != null ? `${Number(p.contract_years).toFixed(1).replace(".", ",")} yıl` : ""),
+    fact("Kariyer tepesi", p.peak_label),
+    fact("Kart", cardLine),
     fact("Bu sezon", seasonLine),
   ].filter(Boolean).join("");
   const table = (data.season_table || []).filter((row) => Number(row.apps) > 0);
@@ -1089,7 +1129,7 @@ async function renderScout(gen) {
   view.innerHTML = `
     <section class="panel page-head">
       <h1>Scout</h1>
-      <p class="lede">Transfermarkt etiketi Aurea değerinin altında kalan oyuncular.</p>
+      <p class="lede">Transfermarkt etiketi, üretime dayalı Aurea değerinin altında kalan oyuncular.</p>
     </section>
     ${positions.map((pos) => `
       <section class="scout-block">

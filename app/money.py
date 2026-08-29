@@ -10,6 +10,8 @@ def format_eur(value) -> str:
         return "—"
     if amount != amount:
         return "—"
+    if 0 < amount < 1_000:
+        return "—"
     if amount >= 1_000_000:
         n = amount / 1_000_000
         text = f"{n:.1f}".replace(".", ",")

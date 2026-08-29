@@ -94,16 +94,33 @@ def parse_euro(text: str | None) -> int | None:
     if not raw or raw in {"-", "?"}:
         return None
     mult = 1.0
-    if "bn" in raw or "mrd" in raw:
+    if "bn" in raw or "mrd" in raw or "billion" in raw:
         mult = 1_000_000_000
-        raw = re.sub(r"bn|mrd", " ", raw, count=1)
-    elif "mio" in raw or "million" in raw or re.search(r"[\d.]m(?:\s|$)", raw):
+        raw = re.sub(r"bn|mrd|billion", " ", raw, count=1)
+    elif (
+        "mio" in raw
+        or "million" in raw
+        or "mill" in raw
+        or re.search(r"\bmil\.?\b", raw)
+        or re.search(r"[\d.,]\s*m(?:\s|$)", raw)
+    ):
         mult = 1_000_000
-        raw = re.sub(r"mio|million|(?<=[\d.])m\b", " ", raw, count=1)
-    elif "thousand" in raw or re.search(r"[\d.]k(?:\s|$)", raw) or (raw.endswith("k") and re.search(r"\d", raw)):
+        raw = re.sub(r"mio|million|mill\.?|mil\.?|(?<=[\d.,])\s*m\b", " ", raw, count=1)
+    elif (
+        "thousand" in raw
+        or re.search(r"\bth\.?\b", raw)
+        or re.search(r"[\d.,]\s*k(?:\s|$)", raw)
+        or (raw.endswith("k") and re.search(r"\d", raw))
+    ):
         mult = 1_000
-        raw = re.sub(r"thousand|(?<=[\d.])k\b", " ", raw, count=1)
-    raw = raw.replace(",", ".").strip()
+        raw = re.sub(r"thousand|th\.?|(?<=[\d.,])\s*k\b", " ", raw, count=1)
+    if "," in raw and "." in raw:
+        raw = raw.replace(".", "").replace(",", ".")
+    else:
+        raw = raw.replace(",", ".")
+        if mult == 1.0 and re.fullmatch(r"\d{1,3}(?:\.\d{3})+", raw):
+            raw = raw.replace(".", "")
+    raw = raw.strip()
     raw = re.sub(r"[^0-9.]", "", raw)
     if not raw:
         return None
@@ -111,6 +128,24 @@ def parse_euro(text: str | None) -> int | None:
         return int(float(raw) * mult)
     except ValueError:
         return None
+
+
+def _normal_market_value(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        parsed = parse_euro(value)
+        if parsed is not None:
+            return parsed
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        return None
+    if amount != amount or amount <= 0:
+        return None
+    if amount < 1_000:
+        return int(round(amount * 1_000_000))
+    return int(round(amount))
 
 
 def _player_id_from_href(href: str | None) -> str | None:
@@ -374,10 +409,11 @@ def _market_history(player_id: str) -> tuple[int | None, list[dict]]:
     series = data.get("list") or []
     history = []
     for point in series:
+        value = _normal_market_value(point.get("y"))
         history.append(
             {
                 "date": datetime.fromtimestamp(int(point.get("x", 0)) / 1000, tz=timezone.utc).date().isoformat() if point.get("x") else None,
-                "marketValue": point.get("y"),
+                "marketValue": value,
                 "clubName": point.get("verein"),
                 "age": int(point["age"]) if str(point.get("age") or "").isdigit() else None,
             }
