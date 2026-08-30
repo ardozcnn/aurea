@@ -17,6 +17,8 @@ from .config import (
     CS_POINTS,
     EARLY_SEASON_FORM_CAP_APPS,
     ESTABLISHED_SL_APPS,
+    FIXTURE_ATTACK_CEILING,
+    FIXTURE_ATTACK_FLOOR,
     FIXTURE_CS_CEILING,
     FIXTURE_CS_FLOOR,
     FORM_PRIOR_MATCHES,
@@ -34,6 +36,8 @@ from .config import (
     RARE_PRIOR_MATCHES,
     RARE_RATE_KEYS,
     RED_PENALTY,
+    SAVE_MULT_CEILING,
+    SAVE_MULT_FLOOR,
     SAVE_POINTS_PER_3,
     SOT_TO_GOAL,
     TFF_EARLY_PRIOR_MATCHES,
@@ -833,8 +837,18 @@ def build_player_table(
         team_base_cs = _lookup_cs(squad, base_cs)
         fixture = lookup_fixture_context(squad, fixture_context)
         fx_kwargs = fixture_model_kwargs(fixture)
-        fixture_attack = float(fx_kwargs["attack_mult"])
-        fixture_cs = float(fx_kwargs["cs_mult"])
+        fixture_attack, fixture_cs, fixture_save = temper_fixture(
+            float(fx_kwargs["attack_mult"]),
+            float(fx_kwargs["cs_mult"]),
+            float(fx_kwargs.get("save_mult") or 1.0),
+            minutes=current_minutes,
+            apps=current_apps,
+            position=position,
+        )
+        fx_kwargs["attack_mult"] = fixture_attack
+        fx_kwargs["cs_mult"] = fixture_cs
+        fx_kwargs["save_mult"] = fixture_save
+        band = fixture_band(fixture_attack, fixture_cs, position)
 
         form_pts = expected_points_from_rates(
             form_for_points,
@@ -1104,6 +1118,7 @@ def build_player_table(
                 "fixture_attack_mult": fixture_attack,
                 "fixture_cs_mult": fixture_cs,
                 "fixture_save_mult": round(float(fx_kwargs.get("save_mult") or 1.0), 4),
+                "fixture_band": band,
                 "fixture_lambda_for": fx_kwargs.get("lambda_for"),
                 "fixture_lambda_against": fx_kwargs.get("lambda_against"),
                 "fixture_p_cs": fx_kwargs.get("p_cs"),
@@ -1165,6 +1180,47 @@ def lookup_fixture_context(
         if score >= 0.5 and (best is None or score > best[0]):
             best = (score, value)
     return best[1] if best else {}
+
+
+def temper_fixture(
+    attack_mult: float,
+    cs_mult: float,
+    save_mult: float,
+    *,
+    minutes: float,
+    apps: float,
+    position: str,
+) -> tuple[float, float, float]:
+    established = min(1.0, max(0.0, float(minutes or 0.0) / 2000.0))
+    if float(apps or 0.0) >= 10:
+        established = min(1.0, established + 0.15)
+    pull = 0.50 * established
+    attack = 1.0 + (float(attack_mult) - 1.0) * (1.0 - pull)
+    save = 1.0 + (float(save_mult) - 1.0) * (1.0 - pull * 0.55)
+    up = max(0.0, float(cs_mult) - 1.0)
+    down = min(0.0, float(cs_mult) - 1.0)
+    cheap_back = position in {"DF", "GK"} and established < 0.45
+    up_keep = 0.48 if cheap_back else (0.82 - 0.28 * established)
+    cs = 1.0 + up * up_keep + down * (1.0 - 0.40 * established)
+    return (
+        max(FIXTURE_ATTACK_FLOOR, min(FIXTURE_ATTACK_CEILING, attack)),
+        max(FIXTURE_CS_FLOOR, min(FIXTURE_CS_CEILING, cs)),
+        max(SAVE_MULT_FLOOR, min(SAVE_MULT_CEILING, save)),
+    )
+
+
+def fixture_band(attack: float, cs: float, position: str) -> str:
+    if position in {"GK", "DF"}:
+        if cs >= 1.08:
+            return "rahat"
+        if cs <= 0.95:
+            return "sert"
+        return "dengeli"
+    if attack >= 1.10:
+        return "rahat"
+    if attack <= 0.92:
+        return "sert"
+    return "dengeli"
 
 
 def fixture_model_kwargs(fixture: dict[str, Any] | None) -> dict[str, Any]:
@@ -1436,6 +1492,24 @@ def apply_context_adjustments(df: pd.DataFrame) -> pd.DataFrame:
         ~gk_prod,
         pd.concat([pts, gk_prod_floor], axis=1).max(axis=1),
     )
+    att_fx = pd.to_numeric(out.get("fixture_attack_mult", zeros), errors="coerce").fillna(1.0)
+    cs_fx = pd.to_numeric(out.get("fixture_cs_mult", zeros), errors="coerce").fillna(1.0)
+    tough_star = (
+        status.eq("AVAILABLE")
+        & position.isin({"FW", "MF"})
+        & (price_m >= 8.5)
+        & starter_evidence
+        & (att_fx <= 0.94)
+    )
+    pts = pts.where(~tough_star, (pts * 1.08).clip(upper=pts + 1.2))
+    easy_cheap = (
+        status.eq("AVAILABLE")
+        & position.isin({"DF", "GK"})
+        & (price_m > 0)
+        & (price_m < 6.2)
+        & (cs_fx >= 1.08)
+    )
+    pts = pts.where(~easy_cheap, pts * 0.90)
     out["tff_calibration_weight"] = official_weight.where(has_official, 0.0)
     out["pts_if_plays"] = pts.clip(lower=0.0).round(3)
     out = apply_goalkeeper_start_probabilities(out)

@@ -35,6 +35,9 @@ _PLAYER_KEYS = (
     "play_probability",
     "fixture_opponent",
     "fixture_home",
+    "fixture_attack_mult",
+    "fixture_cs_mult",
+    "fixture_band",
     "reason",
     "availability",
     "avail_news",
@@ -1177,6 +1180,63 @@ def _ppm(player: dict[str, Any]) -> float | None:
     return pts / price
 
 
+def _side_word(player: dict[str, Any]) -> str:
+    if player.get("fixture_home") is True:
+        return "iç sahada"
+    if player.get("fixture_home") is False:
+        return "deplasmanda"
+    return "karşısında"
+
+
+def _band_word(player: dict[str, Any]) -> str:
+    raw = str(player.get("fixture_band") or "").strip()
+    if raw in {"rahat", "sert", "dengeli"}:
+        return raw
+    att = _num(player.get("fixture_attack_mult")) or 1.0
+    cs = _num(player.get("fixture_cs_mult")) or 1.0
+    pos = str(player.get("position") or "").upper()
+    if pos in {"GK", "DF"}:
+        if cs >= 1.08:
+            return "rahat"
+        if cs <= 0.95:
+            return "sert"
+        return "dengeli"
+    if att >= 1.10:
+        return "rahat"
+    if att <= 0.92:
+        return "sert"
+    return "dengeli"
+
+
+def _club_fold(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", _fold_token(name))
+
+
+_BIG_CLUBS = (
+    ("fenerbahce", "Fenerbahçe"),
+    ("galatasaray", "Galatasaray"),
+    ("besiktas", "Beşiktaş"),
+    ("trabzonspor", "Trabzonspor"),
+)
+
+
+def _is_big_club(team: str) -> bool:
+    folded = _club_fold(team)
+    return any(key in folded or folded in key for key, _label in _BIG_CLUBS)
+
+
+def _fixture_line(player: dict[str, Any]) -> str:
+    opp = str(player.get("fixture_opponent") or "").strip()
+    name = _pname(player)
+    if not name:
+        return ""
+    team = str(player.get("team") or "").strip()
+    band = _band_word(player)
+    if not opp:
+        return f"{name} ({team}), fikstür belirsiz"
+    return f"{name} ({team}), {_side_word(player)} {opp}, {band} fikstür"
+
+
 def _avail_tr(code: str, news: str = "") -> str:
     key = str(code or "").upper()
     labels = {
@@ -1236,8 +1296,42 @@ def _analysis(raw: dict[str, Any], public: dict[str, Any]) -> list[dict[str, Any
                 f"İlk 11’de {len(aways)} deplasman, {len(homes)} iç saha var. "
                 "Deplasman ağırlığı, beklenen puanı daha kırılgan okutur."
             )
-        elif homes or aways:
+        if homes or aways:
             paras.append(f"İlk 11’de {len(homes)} iç saha, {len(aways)} deplasman maçı var.")
+        bands = {"rahat": [], "dengeli": [], "sert": []}
+        for p in xi:
+            line = _fixture_line(p)
+            if line:
+                bands[_band_word(p)].append(line)
+        if bands["sert"]:
+            paras.append(
+                "Sert fikstürde tutulanlar: "
+                + "; ".join(bands["sert"][:4])
+                + ". Üretim tabanı rakibi karşılar; fikstür tek başına düşürmez."
+            )
+        if bands["rahat"]:
+            paras.append(
+                "Rahat fikstürle öne çıkanlar: "
+                + "; ".join(bands["rahat"][:4])
+                + ". Fiyat ve beklenen puan, rakip zayıf diye şişmez; ikisi birlikte okunur."
+            )
+        if bands["dengeli"] and not bands["sert"] and not bands["rahat"]:
+            paras.append("Fikstür bu hafta dengeli; seçim oyuncu üretimine daha yakın duruyor.")
+        xi_teams = {_club_fold(str(p.get("team") or "")) for p in xi}
+        missing = [label for key, label in _BIG_CLUBS if not any(key in t or t in key for t in xi_teams if t)]
+        if missing:
+            paras.append(
+                "Büyük kulüp XI’de yok: "
+                + ", ".join(missing)
+                + ". Yüksek fiyat bu haftanın beklenen puanına sığmayınca kasa, üretim ve fikstürü birlikte daha iyi taşıyan isme kayar."
+            )
+            bench_big = [p for p in bench if _is_big_club(str(p.get("team") or ""))]
+            if bench_big:
+                bits = ", ".join(
+                    f"{_pname(p)} ({p.get('team') or '—'}, {_pts(_if_plays(p))})"
+                    for p in bench_big[:3]
+                )
+                paras.append(f"Yedekte duran büyük kulüp isimleri: {bits}.")
         paras.append(
             "Karttaki rakam beklenen puandır. Forma çıkmayan oyuncu bu tutarı getirmez."
         )
@@ -1252,20 +1346,10 @@ def _analysis(raw: dict[str, Any], public: dict[str, Any]) -> list[dict[str, Any
             paras.append(
                 f"Zayıf halka: {weak}. Fikstür veya form düşerse bu koltuklar değişir."
             )
-        fixtures = []
-        for p in ordered[:6]:
-            opp = p.get("fixture_opponent")
-            if not opp:
-                continue
-            if p.get("fixture_home") is True:
-                side = "iç sahada"
-            elif p.get("fixture_home") is False:
-                side = "deplasmanda"
-            else:
-                side = "karşısında"
-            fixtures.append(f"{_pname(p)}, {side} {opp}")
+        fixtures = [_fixture_line(p) for p in ordered[:6]]
+        fixtures = [line for line in fixtures if line]
         if fixtures:
-            paras.append("Fikstür: " + "; ".join(fixtures[:5]) + ".")
+            paras.append("Fikstür ve oyuncu: " + "; ".join(fixtures[:5]) + ".")
         form_bits = []
         for p in ordered[:5]:
             form = p.get("tff_form")

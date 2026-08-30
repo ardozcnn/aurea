@@ -272,6 +272,7 @@ function rememberPlayer(p) {
     name: p.name,
     club: p.club,
     true_label: p.true_label,
+    tm_label: p.tm_label || "",
     direction: p.direction,
     href: p.href || playerHref(p.player_id, p.name),
   };
@@ -322,6 +323,81 @@ function playerRow(p) {
     <div class="num">${esc(p.true_label || p.tm_label || "—")}${p.tm_label ? `<div class="meta">TM ${esc(p.tm_label)}</div>` : ""}</div>
     ${pill(p.direction, p.gap_label || "")}
   </a>`;
+}
+
+function tenureRow(p) {
+  const mins = p.minutes_365 != null && p.minutes_365 !== "" ? `${fmtCount(p.minutes_365)} dk` : "";
+  const arrived = p.arrived ? fmtDate(p.arrived) : "";
+  const meta = [p.position || "", p.age != null && p.age !== "" ? `${p.age} yaş` : "", mins, arrived ? `geliş ${arrived}` : ""]
+    .filter(Boolean)
+    .join(" · ");
+  const pid = p.player_id != null ? String(p.player_id) : "";
+  return `<article class="tenure-row" data-pid="${esc(pid)}">
+    <button type="button" class="tenure-head"${pid ? "" : " disabled"}>
+      <div class="who-col"><div class="name">${esc(tidyName(p.name))}</div><div class="meta">${esc(meta || "—")}</div></div>
+      <div class="num">${esc(p.true_label || p.tm_label || "—")}${p.tm_label ? `<div class="meta">TM ${esc(p.tm_label)}</div>` : ""}</div>
+      ${pill(p.direction, p.gap_label || "")}
+    </button>
+    <div class="tenure-body" hidden></div>
+  </article>`;
+}
+
+function tenureBlock(title, rows) {
+  if (!rows || !rows.length) return "";
+  return `<div class="group"><h3>${esc(title)}</h3><div class="tenure-list">${rows.map(tenureRow).join("")}</div></div>`;
+}
+
+function tenureCopy(p) {
+  const joined = (p && p.arrived) || "";
+  const joinedLabel = fmtDate(joined);
+  const mins = Number(p && p.minutes_365) || 0;
+  const dir = (p && p.direction) || "";
+  const ageDays = daysSince(joined);
+  const bits = [];
+  if (joinedLabel) bits.push(`Kulübe geliş ${joinedLabel}.`);
+  else bits.push("Bu kadroda geliş tarihi henüz okunamadı.");
+  if (ageDays != null && ageDays >= 0 && ageDays < 50) {
+    bits.push("Geliş yakın; kulüp içi verim için henüz erken.");
+  } else if (mins >= 1800 && dir === "dusuk") {
+    bits.push(`${fmtCount(mins)} dakika ve ucuz etiket: kulüpte verimli görünüyor.`);
+  } else if (mins >= 1800 && dir === "yuksek") {
+    bits.push(`${fmtCount(mins)} dakika var; piyasa primi duruyor, etiket üretimin önünde.`);
+  } else if (mins >= 1800) {
+    bits.push(`${fmtCount(mins)} dakika: kadroda düzenli kullanılıyor.`);
+  } else if (ageDays != null && ageDays > 120 && mins < 600) {
+    bits.push("Dakika düşük; rotasyon veya uyum baskın olabilir.");
+  } else if (mins) {
+    bits.push(`Son 12 ayda ${fmtCount(mins)} dakika.`);
+  }
+  return bits;
+}
+
+function toggleTenure(row, p) {
+  const pid = row.getAttribute("data-pid");
+  const body = row.querySelector(".tenure-body");
+  if (!pid || !body) return;
+  if (row.classList.contains("open")) {
+    row.classList.remove("open");
+    body.hidden = true;
+    return;
+  }
+  row.classList.add("open");
+  body.hidden = false;
+  if (body.dataset.ready === "1") return;
+  const paras = tenureCopy(p || {}).map((t) => `<p>${esc(t)}</p>`).join("");
+  const href = (p && p.href) || playerHref(pid, p && p.name);
+  body.innerHTML = `${paras}<p><a href="${esc(href)}">Oyuncu dosyası</a></p>`;
+  body.dataset.ready = "1";
+}
+
+function bindTenure(root, rows) {
+  const byId = new Map((rows || []).filter((p) => p && p.player_id != null).map((p) => [String(p.player_id), p]));
+  root.querySelectorAll(".tenure-row").forEach((row) => {
+    row.querySelector(".tenure-head")?.addEventListener("click", () => {
+      const p = byId.get(row.getAttribute("data-pid")) || {};
+      toggleTenure(row, p);
+    });
+  });
 }
 
 function listHead() {
@@ -385,14 +461,45 @@ async function openFromQuery(q) {
   go(`/ara?q=${encodeURIComponent(query)}`);
 }
 
-function fmtDate(value) {
-  if (!value) return "";
+function parseStamp(value) {
+  if (!value) return null;
   const s = String(value).trim();
   const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (iso) return `${iso[3]}.${iso[2]}.${iso[1]}`;
-  const eu = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  if (eu) return `${eu[1].padStart(2, "0")}.${eu[2].padStart(2, "0")}.${eu[3]}`;
-  return s.slice(0, 10);
+  if (iso) return Date.UTC(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+  const eu = s.match(/^(\d{1,2})[./](\d{1,2})[./](\d{4})/);
+  if (eu) return Date.UTC(Number(eu[3]), Number(eu[2]) - 1, Number(eu[1]));
+  const months = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+  const named = s.match(/^([A-Za-zçğıöşüİĞÜŞÖÇ]+)\.?\s+(\d{1,2}),?\s+(\d{4})$/i);
+  if (named) {
+    const key = foldTr(named[1]).slice(0, 3);
+    if (Object.prototype.hasOwnProperty.call(months, key)) {
+      return Date.UTC(Number(named[3]), months[key], Number(named[2]));
+    }
+  }
+  const named2 = s.match(/^(\d{1,2})\s+([A-Za-zçğıöşüİĞÜŞÖÇ]+)\.?\s+(\d{4})$/i);
+  if (named2) {
+    const key = foldTr(named2[2]).slice(0, 3);
+    if (Object.prototype.hasOwnProperty.call(months, key)) {
+      return Date.UTC(Number(named2[3]), months[key], Number(named2[1]));
+    }
+  }
+  return null;
+}
+
+function fmtDate(value) {
+  if (!value) return "";
+  const ms = parseStamp(value);
+  if (ms == null) return String(value).trim().slice(0, 16);
+  const d = new Date(ms);
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  return `${dd}.${mm}.${d.getUTCFullYear()}`;
+}
+
+function daysSince(value) {
+  const ms = parseStamp(value);
+  if (ms == null) return null;
+  return Math.floor((Date.now() - ms) / 86400000);
 }
 
 function blankish(value) {
@@ -717,8 +824,27 @@ function clubMini(c) {
   </a>`;
 }
 
+function pulseTm(pulse, id) {
+  const bags = [pulse.stars, pulse.undervalued, pulse.overvalued, pulse.young, pulse.superlig];
+  for (const bag of bags) {
+    for (const p of bag || []) {
+      if (String(p.player_id) === String(id) && p.tm_label && p.tm_label !== "—") return p.tm_label;
+    }
+  }
+  return "";
+}
+
 function renderHome(pulse) {
-  const recent = recentPlayers();
+  const recent = recentPlayers().map((r) => ({
+    player_id: r.id,
+    name: r.name,
+    club: r.club,
+    true_label: r.true_label,
+    tm_label: r.tm_label || pulseTm(pulse, r.id),
+    direction: r.direction || "",
+    href: r.href,
+    gap_label: "",
+  }));
   const clubs = [...(pulse.clubs || [])].sort((a, b) => (Number(b.true_sum) || 0) - (Number(a.true_sum) || 0)).slice(0, 12);
   view.innerHTML = `
     <section class="panel hero home-hero">
@@ -728,9 +854,7 @@ function renderHome(pulse) {
       </form>
       <p class="lede home-lede">Transfermarkt etiketini, oyunun ürettiği Aurea değeriyle yan yana okuyun.</p>
     </section>
-    ${recent.length ? rowBlock("Son bakılanlar", "", recent.map((r) => ({
-      player_id: r.id, name: r.name, club: r.club, true_label: r.true_label, tm_label: "", direction: r.direction || "", href: r.href, gap_label: "",
-    }))) : ""}
+    ${recent.length ? rowBlock("Son bakılanlar", "", recent) : ""}
     ${clubs.length ? `<div class="row-head"><h2>Kulüpler</h2><a href="/kulupler">Tümü</a></div>
       <div class="scroll">${clubs.map(clubMini).join("")}</div>` : ""}
     ${rowBlock("En yüksek tutar", "/piyasa", pulse.stars)}
@@ -945,7 +1069,6 @@ async function renderPlayer(id, gen) {
   const r = data.report || {};
   const live = data.live || {};
   const fm = live.fotmob || {};
-  const injuries = live.injuries || [];
   const ident = r.identity || {};
   const when = liveWhen(p.live_fetched_at || live.fetched_at);
   const move = tmMove(live.market_history);
@@ -1071,7 +1194,6 @@ async function renderPlayer(id, gen) {
       }).join("")}
     </div>
     ${seasonHtml}
-    ${injuries.length ? `<div class="group print-hide"><h3>Sakatlık</h3>${injuries.map((inj) => `<article><b>${esc(inj.injury)}</b><p>${esc(inj.season)} · ${esc(fmtDate(inj.fromDate))} – ${esc(fmtDate(inj.untilDate) || "devam")} · ${esc(inj.days)} gün</p></article>`).join("")}</div>` : ""}
     <div class="group print-hide">
       <h3>Emsaller</h3>
       <div class="comps">
@@ -1726,9 +1848,6 @@ async function renderClub(token, gen) {
   const data = await api(`/api/clubs/${encodeURIComponent(token)}`);
   if (gen !== viewGen) return;
   document.title = `${data.name || "Kulüp"} · Aurea`;
-  const block = (title, rows) => rows && rows.length
-    ? `<div class="group"><h3>${esc(title)}</h3><div class="list">${listHead()}${rows.map(playerRow).join("")}</div></div>`
-    : "";
   const known = new Set([...(data.cheap || []), ...(data.rich || []), ...(data.even || [])].map((p) => p.player_id));
   const rest = (data.items || []).filter((p) => !known.has(p.player_id));
   const moves = data.transfers || {};
@@ -1738,7 +1857,7 @@ async function renderClub(token, gen) {
         <div>
           <span class="stamp ${esc(d.verdict || "uygun")}">${esc(d.verdict_label || labels[d.verdict] || "Uygun")}</span>
           <b>${esc(tidyName(d.name))}</b>
-          <p class="deal-clubs">${d.other ? `<span class="from">${esc(clubName(d.other))}</span><i>→</i>` : ""}<b class="to">${esc(clubName(data.name) || "")}</b></p>
+          <p class="deal-clubs">${d.other ? `<span class="from">${esc(clubName(d.other))}</span><i>→</i>` : ""}<b class="to">${esc(clubName(data.name) || "")}</b>${d.date ? `<span class="deal-date">${esc(fmtDate(d.date))}</span>` : ""}</p>
         </div>
         <div class="fee">${esc(d.fee_label || "—")}</div>
       </div>
@@ -1747,6 +1866,7 @@ async function renderClub(token, gen) {
           <div><span>Bedel</span><b>${esc(d.fee_label || "—")}</b></div>
           <div><span>Transfermarkt</span><b>${esc(d.tm_label || "—")}</b></div>
           <div><span>Aurea değeri</span><b>${esc(d.true_label || "—")}</b></div>
+          ${d.date ? `<div><span>Geliş</span><b>${esc(fmtDate(d.date))}</b></div>` : ""}
         </div>
         <p class="deal-head">${esc(d.headline || "")}</p>
         <p>${esc(d.body || "")}</p>
@@ -1757,18 +1877,19 @@ async function renderClub(token, gen) {
     <section class="panel page-head">
       <p class="kicker">${esc(data.league || "")}${moves.season ? " · " + esc(moves.season) : ""}</p>
       <h1>${esc(clubName(data.name) || "Kulüp")}</h1>
-      <p class="lede">${esc(fmtCount(data.players))} oyuncu · Aurea ${esc(data.true_label || "—")} · Transfermarkt ${esc(data.tm_label || "—")}</p>
+      <p class="lede">${esc(fmtCount(data.players))} oyuncu · Aurea ${esc(data.true_label || "—")} · Transfermarkt ${esc(data.tm_label || "—")}. İsme basın; geliş tarihi ve kulüp verimi açılır.</p>
     </section>
     ${(moves.in || []).length ? `<div class="group"><h3>Gelenler</h3><div class="deals deals-pad">${(moves.in || []).map(dealCard).join("")}</div></div>` : `<p class="sub">Bu sezon için gelen kaydı henüz yok veya okunamadı.</p>`}
     <div class="duo">
       <div class="price-card hero"><div class="k">Aurea toplamı</div><div class="n">${esc(data.true_label || "—")}</div></div>
       <div class="price-card"><div class="k">Transfermarkt toplamı</div><div class="n">${esc(data.tm_label || "—")}</div></div>
     </div>
-    ${block("Ucuz etiket", data.cheap)}
-    ${block("Pahalı etiket", data.rich)}
-    ${block("Uyumlu", data.even)}
-    ${block("Diğer", rest)}
+    ${tenureBlock("Ucuz etiket", data.cheap)}
+    ${tenureBlock("Pahalı etiket", data.rich)}
+    ${tenureBlock("Uyumlu", data.even)}
+    ${tenureBlock("Diğer", rest)}
   `;
+  bindTenure(view, data.items || []);
   view.querySelector(".deals")?.addEventListener("click", (e) => {
     if (e.target.closest("a")) return;
     const art = e.target.closest(".deal");

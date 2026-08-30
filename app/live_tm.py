@@ -569,13 +569,11 @@ def player_bundle(player_id: int | str, fresh: bool = True) -> dict:
     try:
         from concurrent.futures import ThreadPoolExecutor
 
-        with ThreadPoolExecutor(max_workers=4) as pool:
+        with ThreadPoolExecutor(max_workers=3) as pool:
             fut_profile = pool.submit(_scrape_profile, pid)
-            fut_injuries = pool.submit(_scrape_injuries, pid)
             fut_market = pool.submit(_market_history, pid)
             fut_stats = pool.submit(_scrape_stats, pid)
             profile = fut_profile.result() or {}
-            injuries = fut_injuries.result() or []
             market_value, history = fut_market.result()
             stats = fut_stats.result() or []
         if market_value is None:

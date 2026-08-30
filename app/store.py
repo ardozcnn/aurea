@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import math
 import threading
+import time
+from datetime import datetime, timezone
 from typing import Any
 
 import numpy as np
@@ -522,6 +524,167 @@ def market(
         "pages": int(math.ceil(total / page_size)) if page_size else 1,
         "items": [card(row) for _, row in chunk.iterrows()],
     }
+
+
+_WEEK_BOARD: tuple[float, list[dict[str, Any]]] | None = None
+
+
+def _as_xi_pack(part: pd.DataFrame) -> dict[str, Any]:
+    need = (("Goalkeeper", 1), ("Defender", 4), ("Midfield", 3), ("Attack", 3))
+    ranked = part.copy()
+    ranked["_min"] = pd.to_numeric(ranked.get("minutes_365"), errors="coerce").fillna(0)
+    ranked["_val"] = pd.to_numeric(ranked.get("true_value"), errors="coerce").fillna(0)
+    ranked = ranked.sort_values(["_min", "_val"], ascending=False)
+    picked: list[pd.Series] = []
+    used: set[int] = set()
+    for pos, count in need:
+        slice_pos = ranked[ranked["position"].astype(str) == pos]
+        taken = 0
+        for _, row in slice_pos.iterrows():
+            try:
+                pid = int(row["player_id"])
+            except (TypeError, ValueError):
+                continue
+            if pid in used:
+                continue
+            picked.append(row)
+            used.add(pid)
+            taken += 1
+            if taken >= count:
+                break
+    if len(picked) < 11:
+        for _, row in ranked.iterrows():
+            try:
+                pid = int(row["player_id"])
+            except (TypeError, ValueError):
+                continue
+            if pid in used:
+                continue
+            picked.append(row)
+            used.add(pid)
+            if len(picked) >= 11:
+                break
+    chosen = picked[:11]
+    total = float(sum(float(r.get("true_value") or 0) or 0 for r in chosen))
+    return {"value": total, "label": format_eur(total), "n": int(len(chosen))}
+
+
+def _match_club_frame(name: str, groups: dict[str, pd.DataFrame], labels: list[str]) -> tuple[str, pd.DataFrame | None]:
+    from src.names import best_match, normalize_name
+
+    key = normalize_name(name)
+    if key in groups:
+        sample = groups[key]
+        title = str(sample["current_club_name"].iloc[0])
+        return title, sample
+    hit, _score = best_match(name, labels, score_cutoff=70)
+    if not hit:
+        needle = key.split()[0] if key else ""
+        if len(needle) >= 4:
+            for lab in labels:
+                nlab = normalize_name(lab)
+                if nlab.startswith(needle) or f" {needle} " in f" {nlab} ":
+                    sample = groups.get(nlab)
+                    if sample is not None:
+                        return lab, sample
+        return name, None
+    gkey = normalize_name(hit)
+    sample = groups.get(gkey)
+    return hit, sample
+
+
+def week_board() -> list[dict[str, Any]]:
+    global _WEEK_BOARD
+    now = time.time()
+    if _WEEK_BOARD:
+        ttl = 4 * 3600 if _WEEK_BOARD[1] else 15 * 60
+        if now - _WEEK_BOARD[0] < ttl:
+            return _WEEK_BOARD[1]
+    events: list[dict[str, Any]] = []
+    try:
+        from src.fetch_fotmob import fetch_upcoming_super_lig_events
+
+        now_dt = datetime.now(timezone.utc)
+        season_start = now_dt.year if now_dt.month >= 7 else now_dt.year - 1
+        events = fetch_upcoming_super_lig_events(season_start)
+        if not events:
+            events = fetch_upcoming_super_lig_events(season_start - 1)
+    except Exception:
+        events = []
+    if not events:
+        _WEEK_BOARD = (now, [])
+        return []
+    from src.names import normalize_name
+
+    df = _apply_overlays(_catalog())
+    sl = df[df["league_id"].astype("string") == "TR1"].copy()
+    groups: dict[str, pd.DataFrame] = {}
+    labels: list[str] = []
+    if not sl.empty:
+        for club, part in sl.groupby(sl["current_club_name"].astype("string").fillna("")):
+            name = str(club or "").strip()
+            if not name:
+                continue
+            groups[normalize_name(name)] = part
+            labels.append(name)
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    stale_before = int(now) - 12 * 3600
+    first_stamp = 0
+    last_stamp = 0
+    for event in events:
+        stamp = int(event.get("startTimestamp") or 0)
+        if stamp and stamp < stale_before:
+            continue
+        home = str((event.get("homeTeam") or {}).get("name") or "").strip()
+        away = str((event.get("awayTeam") or {}).get("name") or "").strip()
+        if not home or not away:
+            continue
+        if first_stamp and stamp:
+            if stamp - first_stamp > 4 * 86400:
+                break
+            if last_stamp and stamp - last_stamp > 2.5 * 86400:
+                break
+        hk, ak = normalize_name(home), normalize_name(away)
+        if hk in seen or ak in seen:
+            break
+        seen.update((hk, ak))
+        if stamp:
+            if not first_stamp:
+                first_stamp = stamp
+            last_stamp = stamp
+        home_name, home_part = _match_club_frame(home, groups, labels)
+        away_name, away_part = _match_club_frame(away, groups, labels)
+        home_xi = (
+            _as_xi_pack(home_part)
+            if home_part is not None and not home_part.empty
+            else {"value": 0, "label": "—", "n": 0}
+        )
+        away_xi = (
+            _as_xi_pack(away_part)
+            if away_part is not None and not away_part.empty
+            else {"value": 0, "label": "—", "n": 0}
+        )
+        kickoff = ""
+        if stamp:
+            kickoff = datetime.fromtimestamp(stamp, tz=timezone.utc).astimezone().strftime("%d.%m %H:%M")
+        lean = "home" if float(home_xi.get("value") or 0) > float(away_xi.get("value") or 0) else "away"
+        if abs(float(home_xi.get("value") or 0) - float(away_xi.get("value") or 0)) < 2_000_000:
+            lean = "even"
+        rows.append(
+            {
+                "home": club_display(home_name),
+                "away": club_display(away_name),
+                "kickoff": kickoff,
+                "home_xi": home_xi,
+                "away_xi": away_xi,
+                "lean": lean,
+            }
+        )
+        if len(rows) >= 9:
+            break
+    _WEEK_BOARD = (now, rows)
+    return rows
 
 
 def pulse() -> dict:
@@ -1114,7 +1277,19 @@ def _squad_live_card(row: dict[str, Any], club: str, club_href: str | None) -> d
         "direction": "belirsiz",
         "href": player_path(pid, name) if pid is not None else None,
         "live_only": True,
+        "minutes_365": row.get("minutes_365"),
+        "arrived": str(row.get("joined") or "").strip() or None,
     }
+
+
+def _has_tm_value(item: dict[str, Any]) -> bool:
+    raw = item.get("tm_value")
+    if raw is None or raw == "":
+        return False
+    try:
+        return float(raw) > 0
+    except (TypeError, ValueError):
+        return False
 
 
 def club_roster(token: str) -> dict:
@@ -1252,9 +1427,54 @@ def club_roster(token: str) -> dict:
                 continue
             if pid_i in scored:
                 club_overlay_put(pid_i, club_id=cid, club_name=title)
+    items = [x for x in items if _has_tm_value(x)]
+    if not items:
+        raise KeyError(token)
     cheap = [x for x in items if x.get("direction") == "dusuk"]
     rich = [x for x in items if x.get("direction") == "yuksek"]
     even = [x for x in items if x.get("direction") == "denge"]
+    arrived_map: dict[int, str] = {}
+    for deal in moves.get("in") or []:
+        if not isinstance(deal, dict):
+            continue
+        try:
+            pid_i = int(deal.get("player_id"))
+        except (TypeError, ValueError):
+            continue
+        stamp = str(deal.get("date") or "").strip()
+        if stamp:
+            arrived_map[pid_i] = stamp
+    joined_map: dict[int, str] = {}
+    for raw in squad_rows or []:
+        if not isinstance(raw, dict):
+            continue
+        try:
+            pid_i = int(raw.get("player_id"))
+        except (TypeError, ValueError):
+            continue
+        stamp = str(raw.get("joined") or "").strip()
+        if stamp:
+            joined_map[pid_i] = stamp
+    for item in items:
+        try:
+            pid_i = int(item.get("player_id"))
+        except (TypeError, ValueError):
+            continue
+        if pid_i in arrived_map:
+            item["arrived"] = arrived_map[pid_i]
+        elif pid_i in joined_map:
+            item["arrived"] = joined_map[pid_i]
+    for deal in moves.get("in") or []:
+        if not isinstance(deal, dict):
+            continue
+        if str(deal.get("date") or "").strip():
+            continue
+        try:
+            pid_i = int(deal.get("player_id"))
+        except (TypeError, ValueError):
+            continue
+        if pid_i in joined_map:
+            deal["date"] = joined_map[pid_i]
     true_sum = sum(float(x.get("true_value") or 0) for x in items)
     tm_sum = sum(float(x.get("tm_value") or 0) for x in items)
     return json_safe(

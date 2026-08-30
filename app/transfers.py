@@ -874,7 +874,7 @@ def _keep_season_moves(rows: list[dict[str, Any]], season: int) -> list[dict[str
 
 def club_squad(club_id: int, name: str = "") -> list[dict[str, Any]]:
     season = _season_id()
-    key = f"clubsquadrows:{int(club_id)}:{season}:v1"
+    key = f"clubsquadrows:{int(club_id)}:{season}:v2"
     cached = _get_cache(key)
     if isinstance(cached, list) and cached:
         return cached
@@ -926,13 +926,22 @@ def club_squad(club_id: int, name: str = "") -> list[dict[str, Any]]:
                         age = n
                         break
                 tm_val = None
+                joined = ""
                 for td in tds:
                     txt = td.get_text(" ", strip=True)
-                    if "€" not in txt:
+                    if "€" in txt:
+                        parsed = parse_euro(txt)
+                        if parsed:
+                            tm_val = parsed
+                    if joined or re.search(r"\(\d{1,2}\)", txt):
                         continue
-                    parsed = parse_euro(txt)
-                    if parsed:
-                        tm_val = parsed
+                    found_join = re.search(
+                        r"((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},\s+20\d{2}|\d{2}/\d{2}/20\d{2})",
+                        txt,
+                        re.I,
+                    )
+                    if found_join:
+                        joined = found_join.group(1)
                 rows.append(
                     {
                         "player_id": num,
@@ -940,6 +949,7 @@ def club_squad(club_id: int, name: str = "") -> list[dict[str, Any]]:
                         "position": pos,
                         "age": age,
                         "tm_value": tm_val,
+                        "joined": joined,
                     }
                 )
             if len(rows) >= 8:
