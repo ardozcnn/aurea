@@ -26,7 +26,7 @@ def method_pack() -> dict[str, Any]:
                 "id": "hangi-veri",
                 "title": "Hangi veri",
                 "paragraphs": [
-                    "Değer motoru, açık Transfermarkt oyuncu ve maç kayıtlarıyla eğitilir. Oyuncu dosyasında güncel etiket, sakatlık ve sezon toplamı oradan okunur.",
+                    "Değer motoru, açık Transfermarkt oyuncu ve maç kayıtlarıyla eğitilir. Oyuncu dosyasında güncel etiket ve sezon toplamı oradan okunur.",
                     "Şut ve beklenen gol FotMob kaydından tamamlanır. Bu rakamlar metne işlenir; harici bir maç notu sitede puan olarak durmaz.",
                     "Scout listesi, Aurea değeri ile Transfermarkt etiketi arasındaki boşluğu, dakika ve yaş eşiğiyle birlikte okur. Sağlık ve sözleşme, hükümden önce dosyada doğrulanır.",
                 ],
@@ -54,7 +54,8 @@ def method_pack() -> dict[str, Any]:
                 "id": "lisans",
                 "title": "Lisans",
                 "paragraphs": [
-                    "Aurea özel bir yapıttır. Olduğu gibi kopyalanamaz, yayımlanamaz ve ticari kullanılamaz. Telif hakkı saklıdır; ayrıntı proje LICENSE dosyasındadır.",
+                    "Aurea özel bir yapıttır. Telif hakkı saklıdır. Olduğu gibi kopyalanamaz, yayımlanamaz, barındırılamaz ve ticari kullanılamaz. Çatal veya uyarlama bu sınırları kaldırmaz.",
+                    "Transfermarkt, FotMob ve TFF Fantezi Lig üçüncü taraf hizmetlerdir; bu lisans onların haklarını vermez. Ayrıntı proje LICENSE dosyasındadır.",
                 ],
             },
         ],

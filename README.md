@@ -1,6 +1,6 @@
 # Aurea
 
-Aurea, Transfermarkt piyasa etiketinin yanında oyuncunun üretimine dayalı bir adil değer gösterir. Değer, güncel Transfermarkt tutarını modele sokmadan hesaplanır.
+Aurea, Transfermarkt piyasa etiketinin yanında oyuncunun üretimine dayalı bir adil değer gösterir.
 
 Site Türkçedir. Ligler birinci liglerle sınırlıdır. TFF Fantezi Lig sekmesi aynı depodaki eniyileme motoruna bağlanır.
 
@@ -34,60 +34,23 @@ Tarayıcı: [http://127.0.0.1:8787](http://127.0.0.1:8787)
 
 İlk açılışta Transfermarkt açık veri seti iner ve değer motoru bir kez eğitilir. Sonraki açılışlar kayıtlı motoru kullanır.
 
-## Yayın (Render)
-
-GitHub Pages bu uygulamayı çalıştırmaz. Ücretsiz yayın için [Render](https://render.com) kullanılır.
-
-1. [render.com](https://render.com) hesabı açın ve GitHub’u bağlayın.
-2. **New → Web Service** → `ardozcnn/aurea` deposunu seçin.
-3. Branch: `main`. Build: `pip install -r requirements.txt`. Start: `python -m app`.
-4. Deploy bitince Render bir adres verir: `https://….onrender.com`. Siteye o adresten girilir.
-
-`PORT` ortam değişkeni varsa sunucu `0.0.0.0` dinler (Render bunu kendisi yazar). Ücretsiz katmanda servis uykuya yatar; ilk açılış 30–60 saniye sürebilir. İlk kurulumda model eğitimi bellek sınırına takılabilir.
-
-Fantezi motoru varsayılan olarak bu deponun kökündedir (`src/`). Ayrı bir klasör kullanıyorsanız:
-
-```bat
-set FANTASY_ROOT=C:\yol\Fantezi Ligi
-.venv\Scripts\python -m app
-```
-
 Site giriş bilgisi yalnızca oturumda tutulur; depoya yazılmaz.
 
-## TFF Fantezi Lig (komut satırı)
+## Aurea değeri nasıl hesaplanır?
 
-Haftalık kadro kurarken fiyat, form, sezon istatistikleri ve fikstür zorluğunu bir arada değerlendirir. 100 milyon TL bütçeye uyan 15 kişilik kadroyu seçer; diziliş, ilk 11, yedek sırası ve kaptanı da aynı analizden çıkarır.
+Aurea, güncel Transfermarkt etiketini modele özellik olarak sokmaz. Aksi halde site piyasayı kendi kendine tekrar eder.
 
-TFF hesabınızdan canlı fiyat çekmek için örnek dosyayı kopyalayıp kendi bilgilerinizi yazın:
+Motor, açık Transfermarkt oyuncu ve maç kayıtlarıyla eğitilir. Öğrenilen hedef, tarihteki piyasa düzeyidir; girdi ise üretim ve bağlamdır: dakika, maç sayısı, gol, asist, 90 dakikaya indirgenmiş üretim, yaş, mevki, lig, kulüp düzeyi, sözleşme süresi ve milli takım kaydı.
 
-```bat
-copy data\tff_login.example.txt data\tff_login.txt
-```
+Tahmin, gradyan artırmalı bir regresyonla üretilir. Aynı modelin alt ve üst bantları aralık verir; tutar, tutulmuş bir örneklem üzerinde kalibre edilir. Güven, dakika, maç sayısı ve son maçın yeniliğine bakılarak 0 ile 1 arasında bir ağırlıktır.
 
-`data/tff_login.txt` GitHub’a gönderilmez. İsterseniz `TFF_EMAIL` ve `TFF_PASSWORD` ortam değişkenlerini kullanın.
+Yayımlanan Aurea bu iki okumayı birleştirir. Dakikası ve kanıtı yüksek oyuncuda model ağır basar; kanıt zayıfsa okuma etikete daha yakın durur. Ardından yaş, süre, gol-asist temposu ve sözleşme gibi üretim sinyalleri çarpan olarak uygulanır. Sonuç, modelin alt–üst bandının dışına taşmaz.
 
-```bat
-calistir.bat
-```
-
-```bat
-python -m src.main
-python -m src.main --verbose
-python -m src.main --no-fetch-prices
-python -m src.main --refresh-cache
-python -m src.main --export-stats out.csv
-python -m src.main --report-png data/weekly_report.png
-```
-
-İlk komut yalnızca kadro sonucunu gösterir. `--verbose` ayrıntılı kayıt alır; `--no-fetch-prices` kayıtlı fiyat dosyasını kullanır; `--refresh-cache` Sofascore önbelleğini yeniler.
-
-Fiyatları çevrimdışı denemek için `data/prices.example.csv` dosyasını `data/prices.csv` olarak kopyalayıp `--no-fetch-prices` kullanın. İstatistik adımı yine Sofascore’dan veri ister.
-
-Sofascore ara sıra 403/429 ile geçici engel koyar. Program önce farklı tarayıcı kimlikleriyle ve kısa aralarla tekrar dener; olmazsa bir önceki başarılı çekimin önbelleğini kullanır. `--refresh-cache` bu yedeği siler. Fikstür Sofascore’dan gelmezse FotMob takvimi devreye girer.
+Scout ve kulüp sayfasındaki ucuz/pahalı etiket, bu Aurea ile Transfermarkt tutarı arasındaki boşluktur. Boşluk tek başına fırsat demek değildir; dakika azsa ucuzluk süre alınmadığı için de oluşur.
 
 ## Analiz neye dayanıyor?
 
-Her hafta birkaç kaynak birlikte okunur:
+TFF Fantezi Lig sekmesinde her hafta birkaç kaynak birlikte okunur:
 
 **Bu sezon** — Son haftaların formu (L6) ile sezon toplam istatistikleri Sofascore üzerinden gelir. FotMob, ilk 11 durumu, xG, xA, şut ve güncel maç bilgisi için ikinci kaynak olarak kullanılır.
 
@@ -135,4 +98,14 @@ Testler ağ bağlantısı gerektirmez.
 
 ## Lisans
 
-Özel kullanım.
+Aurea özel bir yapıttır. Telif hakkı © 2026 Arda’ya aittir; tüm hakları saklıdır. Kaynak kod, arayüz, metin, görsel, model ve üretilen çıktı bu kapsamdadır.
+
+Yazılı izin olmadan yapı olduğu gibi kopyalanamaz, yayımlanamaz, barındırılamaz veya dağıtılamaz. Satış, abonelik, reklam, beyaz etiket veya SaaS dahil ticari kullanım yasaktır. Aurea adı, markası ve tasarımı izinsiz kullanılamaz.
+
+Çatal, değişiklik veya uyarlama orijinal hakları ortadan kaldırmaz; türetilmiş iş de aynı sınırlara tabidir. İnceleme ve özel öğrenme dahi önceden yazılı onay ister.
+
+Transfermarkt, FotMob ve TFF Fantezi Lig üçüncü taraf hizmetlerdir. Bu lisans onların verisini veya markasını devretmez.
+
+Yapıt “olduğu gibi” sunulur. Yatırım, transfer veya bahis tavsiyesi değildir. İzinsiz kullanımda lisans sona erer.
+
+Tam metin `LICENSE` dosyasındadır. İzin için hak sahibiyle iletişime geçin.
