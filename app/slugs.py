@@ -104,8 +104,39 @@ def is_free_agent(name: str) -> bool:
             "unattached",
             "kulupsuz",
             "noclub",
+            "retired",
+            "karrierebeendet",
+            "careerended",
+            "emekli",
         )
     )
+
+
+def club_names_match(left: str, right: str) -> bool:
+    a = fold_tr(left)
+    b = fold_tr(right)
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    return a.startswith(b + " ") or b.startswith(a + " ")
+
+
+def club_query_hit(name: str, query: str) -> int | None:
+    nn = fold_tr(name)
+    qn = fold_tr(query)
+    if not nn or not qn:
+        return None
+    if nn == qn:
+        return 0
+    if nn.startswith(qn):
+        return 1
+    words = [w for w in re.split(r"[^a-z0-9]+", nn) if w]
+    if any(w == qn for w in words):
+        return 1
+    if len(qn) >= 3 and any(w.startswith(qn) for w in words):
+        return 2
+    return None
 
 
 def club_display(name: str) -> str:

@@ -306,7 +306,9 @@ def api_fantasy_login(body: FantasyLoginIn):
     try:
         return fantasy_login(body.email, body.password)
     except Exception as extra:
-        raise HTTPException(401, str(extra) or "Giriş başarısız.") from extra
+        from src.tff_client import network_message
+
+        raise HTTPException(401, network_message(extra) or "Giriş başarısız.") from extra
 
 
 @app.post("/api/fantasy/logout")

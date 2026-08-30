@@ -25,6 +25,23 @@ def format_eur(value) -> str:
     return f"{int(round(amount))} €"
 
 
+def format_tr_num(value, digits: int = 1) -> str:
+    if value is None:
+        return "—"
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return "—"
+    if n != n:
+        return "—"
+    text = f"{n:.{digits}f}".replace(".", ",")
+    if digits > 0 and "," in text:
+        whole, frac = text.split(",", 1)
+        frac = frac.rstrip("0")
+        return whole if not frac else f"{whole},{frac}"
+    return text
+
+
 def format_pct(value, signed: bool = True) -> str:
     if value is None:
         return "—"

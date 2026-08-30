@@ -542,7 +542,10 @@ def _analyze(deal: dict[str, Any]) -> dict[str, Any]:
         if true:
             bits.append(f"Aurea değeri {format_eur(true)}.")
     elif kind == "bedelsiz":
-        bits.append(f"{club}, {name}’i bedelsiz aldı. Transfer ücreti yok; yük maaş ve sözleşmedir.")
+        bits.append(
+            f"{club}, {name} adlı oyuncuyu bedelsiz kadrosuna kattı. "
+            "Transfer ücreti yok; yük maaş ve sözleşmedir."
+        )
         if tm:
             bits.append(f"Transfermarkt {format_eur(tm)}.")
         if true:
@@ -575,7 +578,7 @@ def _analyze(deal: dict[str, Any]) -> dict[str, Any]:
         elif age <= 27:
             bits.append(f"{age} yaşında; en verimli döneme yakın.")
         elif age <= 31:
-            bits.append(f"{age} yaşında; bedel mevcut oyuna yaslanmalı.")
+            bits.append(f"{age} yaşında; bedel mevcut oyuna dayanmalıdır.")
         else:
             bits.append(f"{age} yaşında; yüksek bedel kısa süreli net oyunla savunulur.")
 
@@ -819,6 +822,12 @@ def _parse_move_table(table, club: str, side: str) -> list[dict[str, Any]]:
             age = None
         if age is not None and not 15 <= age <= 50:
             age = None
+        date = ""
+        date_el = tr.select_one(".datum-transfer-cell")
+        blob = date_el.get_text(" ", strip=True) if date_el else tr.get_text(" ", strip=True)
+        found_date = re.search(r"(\d{2}/\d{2}/20\d{2})", blob)
+        if found_date:
+            date = found_date.group(1)
         pid_i = int(pid) if pid else None
         mw_el = tr.select_one(".mw-transfer-cell")
         tm_val = parse_euro(mw_el.get_text(" ", strip=True)) if mw_el else None
@@ -847,17 +856,28 @@ def _parse_move_table(table, club: str, side: str) -> list[dict[str, Any]]:
                 "tm_value": tm_val,
                 "tm_label": format_eur(tm_val) if tm_val else "—",
                 "href": f"/oyuncu/{pid_i}" if pid_i else f"/ara?q={name}",
+                "date": date,
             }
         )
     return rows
 
 
-def club_squad_ids(club_id: int, name: str = "") -> list[int]:
+def _keep_season_moves(rows: list[dict[str, Any]], season: int) -> list[dict[str, Any]]:
+    keep: list[dict[str, Any]] = []
+    for row in rows:
+        date = str(row.get("date") or "")
+        if date and not _in_season(date, season):
+            continue
+        keep.append(row)
+    return keep
+
+
+def club_squad(club_id: int, name: str = "") -> list[dict[str, Any]]:
     season = _season_id()
-    key = f"clubsquad:{int(club_id)}:{season}:v1"
+    key = f"clubsquadrows:{int(club_id)}:{season}:v1"
     cached = _get_cache(key)
     if isinstance(cached, list) and cached:
-        return [int(x) for x in cached]
+        return cached
     from app.slugs import slugify
 
     slug = slugify(name) or "club"
@@ -866,33 +886,78 @@ def club_squad_ids(club_id: int, name: str = "") -> list[int]:
         f"/{slug}/kader/verein/{int(club_id)}/saison_id/{season}",
         f"/kader/verein/{int(club_id)}/saison_id/{season}",
     ]
-    ids: list[int] = []
+    rows: list[dict[str, Any]] = []
     seen: set[int] = set()
     for path in paths:
         try:
             html = _get_html(path)
             soup = BeautifulSoup(html, "lxml")
-            for link in soup.select("table.items a[href*='spieler']"):
-                pid = _player_id_from_href(link.get("href") or "")
-                if not pid:
+            table = soup.select_one("table.items")
+            if table is None:
+                continue
+            for tr in table.select("tbody tr"):
+                tds = tr.find_all("td", recursive=False)
+                if len(tds) < 5:
+                    continue
+                pname, href = _row_player(tr)
+                pid = _player_id_from_href(href)
+                if not pname or not pid:
                     continue
                 num = int(pid)
                 if num in seen:
                     continue
                 seen.add(num)
-                ids.append(num)
-            if len(ids) >= 8:
+                pos = ""
+                box = tr.select_one(".inline-table") or tr.select_one(".posrela")
+                if box is not None:
+                    bits = [x.get_text(" ", strip=True) for x in box.select("td") if x.get_text(" ", strip=True)]
+                    if len(bits) >= 2:
+                        pos = bits[-1]
+                age = None
+                for cell in tr.select("td.zentriert"):
+                    raw = re.sub(r"\D", "", cell.get_text() or "")
+                    if not raw:
+                        continue
+                    try:
+                        n = int(raw)
+                    except ValueError:
+                        continue
+                    if 15 <= n <= 50:
+                        age = n
+                        break
+                tm_val = None
+                for td in tds:
+                    txt = td.get_text(" ", strip=True)
+                    if "€" not in txt:
+                        continue
+                    parsed = parse_euro(txt)
+                    if parsed:
+                        tm_val = parsed
+                rows.append(
+                    {
+                        "player_id": num,
+                        "name": pname,
+                        "position": pos,
+                        "age": age,
+                        "tm_value": tm_val,
+                    }
+                )
+            if len(rows) >= 8:
                 break
         except Exception:
             continue
-    if ids:
-        _set_cache(key, ids, ttl=6 * 3600)
-    return ids
+    if rows:
+        _set_cache(key, rows, ttl=6 * 3600)
+    return rows
+
+
+def club_squad_ids(club_id: int, name: str = "") -> list[int]:
+    return [int(r["player_id"]) for r in club_squad(club_id, name) if r.get("player_id")]
 
 
 def club_moves(club_id: int, name: str = "") -> dict[str, Any]:
     season = _season_id()
-    key = f"clubmoves:{int(club_id)}:{season}:v6"
+    key = f"clubmoves:{int(club_id)}:{season}:v9"
     cached = _get_cache(key)
     if isinstance(cached, dict) and (cached.get("in") or cached.get("empty")):
         return cached
@@ -908,13 +973,14 @@ def club_moves(club_id: int, name: str = "") -> dict[str, Any]:
     ]
     for path in paths:
         try:
-            html_key = f"clubmoves-html:{int(club_id)}:{season}:{path}:v4"
+            html_key = f"clubmoves-html:{int(club_id)}:{season}:{path}:v5"
             html = _get_cache(html_key)
             if not isinstance(html, str) or len(html) < 400:
                 html = _get_html(path)
                 _set_cache(html_key, html, ttl=6 * 3600)
             soup = BeautifulSoup(html, "lxml")
-            for box in soup.select("div.box"):
+            boxes = soup.select("div.box")
+            for box in boxes:
                 head = box.select_one("h2")
                 title = head.get_text(" ", strip=True) if head else ""
                 if not _season_in_title(title, season):
@@ -931,6 +997,16 @@ def club_moves(club_id: int, name: str = "") -> dict[str, Any]:
         except Exception:
             incoming = []
             outgoing = []
+    try:
+        extra_dates = _scrape_latest_dates(season)
+    except Exception:
+        extra_dates = {}
+    for row in incoming + outgoing:
+        pid = row.get("player_id")
+        if pid and not row.get("date") and int(pid) in extra_dates:
+            row["date"] = extra_dates[int(pid)]
+    incoming = _keep_season_moves(incoming, season)
+    outgoing = _keep_season_moves(outgoing, season)
     judged_in = []
     for row in incoming[:40]:
         pid = row.get("player_id")

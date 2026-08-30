@@ -287,8 +287,8 @@ def choose_manager_card(
             "remaining": 0,
             "weeks_left": weeks,
             "why": (
-                f"Sezonluk {budget} kart hakkının tamamı kullanılmış; "
-                "bu hafta kart önermiyorum."
+                f"Sezonluk {budget} kart hakkının tamamı kullanılmış. "
+                "Bu hafta menajer kartı kullanılmaz."
             ),
         }
 
@@ -309,8 +309,8 @@ def choose_manager_card(
             "remaining": left,
             "weeks_left": weeks,
             "why": (
-                f"Bu hafta ölçülebilir kart fırsatı yok; "
-                f"kalan {left}/{budget} hakkı sonraki haftaya sakla."
+                f"Bu hafta ölçülebilir kart fırsatı yok. "
+                f"Kalan {left}/{budget} hak sonraki haftaya saklanır."
             ),
         }
 
@@ -325,9 +325,9 @@ def choose_manager_card(
             "weeks_left": weeks,
             "threshold": round(float(threshold), 2),
             "why": (
-                f"En iyi aday {best['card']} (+{float(best['extra_pts']):.2f}p), "
-                f"ama fırsat maliyeti eşiği +{threshold:.1f}p "
-                f"(kalan {left} kart / {weeks} hafta). Bu hafta sakla."
+                f"En yakın aday {best['card']}; beklenen ek puan {float(best['extra_pts']):.1f}. "
+                f"Fırsat eşiği {threshold:.1f} puan (kalan {left} kart, {weeks} hafta). "
+                "Bu hafta menajer kartı kullanılmaz."
             ),
         }
     return {
@@ -338,8 +338,8 @@ def choose_manager_card(
         "weeks_left": weeks,
         "threshold": round(float(threshold), 2),
         "why": (
-            f"{best['why']}; +{float(best['extra_pts']):.2f}p fırsat "
-            f"+{threshold:.1f}p eşiğini geçti. Kalan hak {left}/{budget}. "
-            "Bu hafta yalnız bu kartı kullan."
+            f"{best['why']}. Beklenen ek puan {float(best['extra_pts']):.1f}; "
+            f"eşik {threshold:.1f}. Kalan hak {left}/{budget}. "
+            "Bu hafta yalnız bu kart kullanılır."
         ),
     }

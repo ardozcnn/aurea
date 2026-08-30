@@ -12,6 +12,7 @@ let bootTimer = null;
 let searchClock;
 let fantasyClock;
 let viewGen = 0;
+let methodReturn = "/";
 
 function foldTr(value) {
   return String(value ?? "")
@@ -22,6 +23,14 @@ function foldTr(value) {
     .replaceAll("ö", "o")
     .replaceAll("ş", "s")
     .replaceAll("ü", "u");
+}
+
+function clubTextMatch(name, q) {
+  const nn = foldTr(name);
+  const n = foldTr(q);
+  if (!n) return true;
+  if (nn === n || nn.startsWith(n)) return true;
+  return nn.split(/[^a-z0-9]+/).some((w) => w && (w === n || (n.length >= 3 && w.startsWith(n))));
 }
 
 function tidyName(value) {
@@ -72,6 +81,7 @@ function hideDrop() {
   drop.classList.add("hidden");
   drop.innerHTML = "";
   clearTimeout(searchClock);
+  syncNavSearch();
 }
 
 function searchAnchor() {
@@ -207,11 +217,30 @@ function go(href, replace) {
   render();
 }
 
+function syncMethodFab() {
+  const fab = document.querySelector(".method-fab");
+  if (!fab) return;
+  const on = document.body.classList.contains("on-yontem");
+  fab.classList.toggle("is-close", on);
+  fab.textContent = on ? "×" : "?";
+  fab.title = on ? "Kapat" : "Yöntem";
+  fab.setAttribute("aria-label", on ? "Kapat" : "Yöntem");
+  fab.setAttribute("href", on ? (methodReturn || "/") : "/yontem");
+}
+
+function syncNavSearch() {
+  const form = document.getElementById("global-search");
+  if (!form || !gq) return;
+  const open = document.activeElement === gq || Boolean(gq.value.trim()) || !drop.classList.contains("hidden");
+  form.classList.toggle("is-open", open);
+}
+
 function setActiveNav() {
   const first = routeParts()[0] || "";
   const home = !first;
   document.body.classList.toggle("on-home", home);
   document.body.classList.toggle("on-yontem", first === "yontem");
+  syncMethodFab();
   const searchForm = document.getElementById("global-search");
   if (searchForm) searchForm.classList.remove("hidden");
   document.querySelectorAll(".links a, .dock a").forEach((a) => {
@@ -300,32 +329,34 @@ function listHead() {
 }
 
 function resultRow(p) {
+  if (p.kind === "club") {
+    return `<a href="${esc(p.href || "/kulupler")}">
+      <div><div class="name">${esc(clubName(p.name))}</div><div class="meta">Kulüp${p.league ? " · " + esc(p.league) : ""}</div></div>
+      <div class="num">${esc(p.true_label || p.tm_label || "—")}</div>
+    </a>`;
+  }
   return `<a href="${esc(p.href || playerHref(p.player_id, p.name))}">
     <div><div class="name">${esc(tidyName(p.name))}</div><div class="meta">${esc(clubName(p.club) || "")} · ${esc(p.position || "")}</div></div>
     <div class="num">${esc(p.true_label || p.tm_label || "—")}</div>
   </a>`;
 }
 
+function worthOf(r) {
+  const a = Number(r && r.tm_value);
+  const b = Number(r && r.true_value);
+  return Math.max(Number.isFinite(a) ? a : 0, Number.isFinite(b) ? b : 0);
+}
+
 function bestMatch(rows, q) {
-  const n = (q || "").trim().toLowerCase();
+  const n = foldTr(q || "");
   if (!n || !rows.length) return null;
-  const nameOf = (r) => String(r.name || "").toLowerCase();
-  const exact = rows.filter((r) => nameOf(r) === n);
-  if (exact.length === 1) return exact[0];
-  const last = rows.filter((r) => nameOf(r).split(/[\s-]+/).pop() === n);
-  if (last.length === 1) return last[0];
-  if (last.length > 1) {
-    const ranked = [...last].sort((a, b) => (Number(b.tm_value) || Number(b.true_value) || 0) - (Number(a.tm_value) || Number(a.true_value) || 0));
-    const top = Number(ranked[0].tm_value) || Number(ranked[0].true_value) || 0;
-    const next = Number(ranked[1].tm_value) || Number(ranked[1].true_value) || 0;
-    if (top >= 1_000_000 && top >= next * 3) return ranked[0];
-  }
-  const token = rows.filter((r) => nameOf(r).split(/[\s-]+/).includes(n));
-  if (token.length === 1) return token[0];
-  const ranked = [...rows].sort((a, b) => (a.match ?? 9) - (b.match ?? 9));
-  if (ranked.length === 1) return ranked[0];
-  if ((ranked[0].match ?? 9) <= 1 && (ranked[1]?.match ?? 9) > 1) return ranked[0];
-  return null;
+  const clubs = rows.filter((r) => r.kind === "club");
+  const clubHit = clubs.find((c) => clubTextMatch(c.name, n));
+  if (clubHit) return clubHit;
+  const players = rows.filter((r) => r.kind !== "club" && r.player_id != null);
+  if (!players.length) return null;
+  const ranked = [...players].sort((a, b) => worthOf(b) - worthOf(a));
+  return ranked[0] || null;
 }
 
 async function openFromQuery(q) {
@@ -340,6 +371,10 @@ async function openFromQuery(q) {
     const data = await api(`/api/search?q=${encodeURIComponent(query)}`);
     const rows = data.results || [];
     const hit = bestMatch(rows, query);
+    if (hit?.kind === "club" && hit.href) {
+      go(hit.href);
+      return;
+    }
     if (hit?.player_id) {
       go(hit.href || playerHref(hit.player_id, hit.name));
       return;
@@ -496,6 +531,7 @@ async function runSearch(q, into) {
   if (q.length < 2) {
     into.innerHTML = "";
     into.classList.add("hidden");
+    if (into === drop) syncNavSearch();
     return;
   }
   try {
@@ -515,33 +551,64 @@ async function runSearch(q, into) {
     }
     into.innerHTML = rows.map(resultRow).join("");
     into.classList.remove("hidden");
-    if (into === drop) placeDrop(active);
+    if (into === drop) {
+      syncNavSearch();
+      placeDrop(active);
+    }
   } catch (ex) {
     into.innerHTML = `<p class="sub" style="padding:16px">${esc(ex.message || "Arama şu an kullanılamıyor.")}</p>`;
     into.classList.remove("hidden");
-    if (into === drop) placeDrop(document.activeElement);
+    if (into === drop) {
+      syncNavSearch();
+      placeDrop(document.activeElement);
+    }
   }
 }
 
 gq.addEventListener("input", () => {
+  syncNavSearch();
   clearTimeout(searchClock);
   searchClock = setTimeout(() => runSearch(gq.value.trim(), drop), 160);
+});
+gq.addEventListener("focus", () => {
+  syncNavSearch();
+  requestAnimationFrame(() => {
+    if (!drop.classList.contains("hidden")) placeDrop(gq);
+  });
+});
+gq.addEventListener("blur", () => {
+  setTimeout(syncNavSearch, 160);
 });
 document.getElementById("global-search").addEventListener("submit", (e) => {
   e.preventDefault();
   hideDrop();
   openFromQuery(gq.value.trim());
 });
+document.getElementById("global-search").addEventListener("transitionend", () => {
+  if (!drop.classList.contains("hidden")) placeDrop(gq);
+});
 drop.addEventListener("click", (e) => {
   const a = e.target.closest("a");
   if (!a) return;
   hideDrop();
   gq.value = "";
+  syncNavSearch();
 });
 document.addEventListener("click", (e) => {
   const a = e.target.closest("a[href]");
   if (a && a.target !== "_blank" && !a.hasAttribute("download") && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
     const href = a.getAttribute("href") || "";
+    if (a.classList.contains("method-fab")) {
+      e.preventDefault();
+      if (document.body.classList.contains("on-yontem")) {
+        go(methodReturn || "/");
+      } else {
+        const here = `${location.pathname}${location.search}` || "/";
+        if (!here.startsWith("/yontem")) methodReturn = here;
+        go("/yontem");
+      }
+      return;
+    }
     if (href.startsWith("#/")) {
       e.preventDefault();
       const rest = href.slice(2);
@@ -574,6 +641,12 @@ function fmtCount(n) {
   return Number(n).toLocaleString("tr-TR");
 }
 
+function fmtOne(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "—";
+  return n.toLocaleString("tr-TR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+}
+
 function properCase(value) {
   const s = String(value ?? "").trim();
   if (!s) return "";
@@ -585,7 +658,19 @@ function properCase(value) {
 function clubName(value) {
   const raw = String(value ?? "").trim();
   const n = foldTr(raw).replace(/[\s-]/g, "");
-  if (!raw || n.includes("withoutclub") || n === "vereinslos" || n === "ohneverein" || n === "freeagent" || n === "unattached" || n === "kulupsuz") {
+  if (
+    !raw ||
+    n.includes("withoutclub") ||
+    n.includes("vereinslos") ||
+    n.includes("ohneverein") ||
+    n.includes("freeagent") ||
+    n.includes("unattached") ||
+    n.includes("kulupsuz") ||
+    n.includes("retired") ||
+    n.includes("karrierebeendet") ||
+    n.includes("careerended") ||
+    n === "emekli"
+  ) {
     return "Kulüpsüz";
   }
   return properCase(raw);
@@ -639,9 +724,9 @@ function renderHome(pulse) {
     <section class="panel hero home-hero">
       <h1 class="brand-mark">Aurea</h1>
       <form class="spotlight" id="home-search" autocomplete="off">
-        <input id="hq" type="search" placeholder="Oyuncu veya Transfermarkt adresi" />
+        <input id="hq" type="search" placeholder="Oyuncu, kulüp veya Transfermarkt adresi" />
       </form>
-      <p class="lede home-lede">Transfermarkt etiketi ile üretime dayalı Aurea değerini birlikte okuyun.</p>
+      <p class="lede home-lede">Transfermarkt etiketini, oyunun ürettiği Aurea değeriyle yan yana okuyun.</p>
     </section>
     ${recent.length ? rowBlock("Son bakılanlar", "", recent.map((r) => ({
       player_id: r.id, name: r.name, club: r.club, true_label: r.true_label, tm_label: "", direction: r.direction || "", href: r.href, gap_label: "",
@@ -650,7 +735,7 @@ function renderHome(pulse) {
       <div class="scroll">${clubs.map(clubMini).join("")}</div>` : ""}
     ${rowBlock("En yüksek tutar", "/piyasa", pulse.stars)}
     ${rowBlock("Ucuz etiket", "/piyasa?direction=dusuk", pulse.undervalued)}
-    ${rowBlock("Pahalı etiket", "/piyasa?direction=yuksek", pulse.overvalued)}
+    ${rowBlock("Piyasa primi", "/piyasa?direction=yuksek", pulse.overvalued)}
   `;
   document.getElementById("home-search").addEventListener("submit", (e) => {
     e.preventDefault();
@@ -671,9 +756,9 @@ async function renderSearch(gen) {
     <section class="hero center search-hero panel">
       <p class="kicker">Arama</p>
       <h1>Oyuncu ara</h1>
-      <p class="lede">İsim, kulüp veya Transfermarkt bağlantısı. Mevki süzgeci sonuçları daraltır.</p>
+      <p class="lede">İsim, kulüp veya Transfermarkt bağlantısı.</p>
       <form id="ara-form" class="filters search-filters">
-        <input id="aq" name="q" value="${esc(q.q || "")}" placeholder="Oyuncu veya adres" />
+        <input id="aq" name="q" value="${esc(q.q || "")}" placeholder="Oyuncu, kulüp veya adres" />
         <select name="position" id="aq-pos">
           <option value="">Mevki</option>
           <option value="Goalkeeper" ${q.position === "Goalkeeper" ? "selected" : ""}>Kaleci</option>
@@ -689,9 +774,11 @@ async function renderSearch(gen) {
   const input = document.getElementById("aq");
   const box = document.getElementById("ara-results");
   const paint = (rows) => {
-    box.innerHTML = rows.length
-      ? listHead() + rows.map(playerRow).join("")
-      : `<p class="sub">Sonuç yok.</p>`;
+    const clubs = rows.filter((r) => r.kind === "club");
+    const players = rows.filter((r) => r.kind !== "club");
+    const clubHtml = clubs.length ? `<div class="search-clubs">${clubs.map(resultRow).join("")}</div>` : "";
+    const playerHtml = players.length ? listHead() + players.map(playerRow).join("") : "";
+    box.innerHTML = (clubHtml + playerHtml) || `<p class="sub">Sonuç yok.</p>`;
   };
   const paramsOf = () => {
     const pos = document.getElementById("aq-pos")?.value || "";
@@ -715,13 +802,17 @@ async function renderSearch(gen) {
     const extra = paramsOf();
     const query = extra.get("q") || "";
     if (query.length < 2) { box.innerHTML = `<p class="sub">En az iki harf yazın veya bir Transfermarkt adresi yapıştırın.</p>`; return; }
-    box.innerHTML = waitScreen("Aranıyor", "Ambar ve Transfermarkt taranıyor.");
+    box.innerHTML = waitScreen("Aranıyor", "Kayıtlar ve Transfermarkt taranıyor.");
     try {
       const data = await api(`/api/search?${extra.toString()}`);
       if (gen !== viewGen) return;
       const rows = data.results || [];
       if (submit) {
         const hit = bestMatch(rows, query);
+        if (hit?.kind === "club" && hit.href) {
+          go(hit.href);
+          return;
+        }
         if (hit?.player_id) {
           go(hit.href || playerHref(hit.player_id, hit.name));
           return;
@@ -750,7 +841,7 @@ async function renderSearch(gen) {
 async function renderMarket(preset = {}, gen) {
   const q = { ...queryFromHash(), ...preset };
   const params = new URLSearchParams();
-  ["league", "position", "direction", "q", "sort", "order", "page"].forEach((k) => { if (q[k]) params.set(k, q[k]); });
+  ["league", "position", "direction", "q", "sort", "page"].forEach((k) => { if (q[k]) params.set(k, q[k]); });
   const data = await api(`/api/market?${params.toString()}`);
   if (gen !== viewGen) return;
   const leagues = (await api("/api/leagues")).leagues || [];
@@ -759,7 +850,7 @@ async function renderMarket(preset = {}, gen) {
   view.innerHTML = `
     <section class="panel page-head">
       <h1>${esc(leagueName)}</h1>
-      <p class="lede">${esc(fmtCount(data.total))} oyuncu. Lig ve mevkiye göre süzün.</p>
+      <p class="lede">${esc(fmtCount(data.total))} oyuncu. Listeyi lig ve mevkiye göre daraltın.</p>
     </section>
     <form class="filters" id="filt">
       <input name="q" value="${esc(q.q || "")}" placeholder="İsim" />
@@ -773,19 +864,15 @@ async function renderMarket(preset = {}, gen) {
       </select>
       <select name="direction">
         <option value="">Fiyat</option>
-        <option value="dusuk" ${q.direction === "dusuk" ? "selected" : ""}>Ucuz</option>
-        <option value="yuksek" ${q.direction === "yuksek" ? "selected" : ""}>Pahalı</option>
-        <option value="denge" ${q.direction === "denge" ? "selected" : ""}>Dengeli</option>
+        <option value="dusuk" ${q.direction === "dusuk" ? "selected" : ""}>Ucuz etiket</option>
+        <option value="yuksek" ${q.direction === "yuksek" ? "selected" : ""}>Piyasa primi</option>
+        <option value="denge" ${q.direction === "denge" ? "selected" : ""}>Uyumlu</option>
       </select>
       <select name="sort">
         <option value="true_value">Aurea değeri</option>
         <option value="tm" ${q.sort === "tm" ? "selected" : ""}>Transfermarkt</option>
         <option value="gap" ${q.sort === "gap" ? "selected" : ""}>Fark</option>
         <option value="goals" ${q.sort === "goals" ? "selected" : ""}>Gol</option>
-      </select>
-      <select name="order">
-        <option value="desc" ${!q.order || q.order === "desc" ? "selected" : ""}>Yüksekten düşüğe</option>
-        <option value="asc" ${q.order === "asc" ? "selected" : ""}>Düşükten yükseğe</option>
       </select>
       <button class="btn" type="submit">Uygula</button>
     </form>
@@ -916,6 +1003,8 @@ async function renderPlayer(id, gen) {
   document.title = `${tidyName(p.name)} · Aurea`;
   const leagueShown = properCase(ident.league || p.league || "");
   const posShown = ident.position || p.position || "";
+  const karar = (r.sections || []).find((s) => s.id === "karar");
+  const kararLine = karar && ((karar.paragraphs && karar.paragraphs[0]) || karar.body) || "";
   view.innerHTML = `
     <section class="print-sheet">
       <div class="print-brand"><i></i><b>Aurea</b></div>
@@ -923,9 +1012,12 @@ async function renderPlayer(id, gen) {
       <p class="print-meta">${[clubShown, leagueShown, posShown, p.age ? p.age + " yaş" : ""].filter(Boolean).map(esc).join(" · ")}</p>
       <div class="print-prices">
         <div><span>Transfermarkt</span><b>${esc(p.tm_label || "—")}</b></div>
-        <div class="on"><span>Aurea değeri</span><b>${esc(p.true_label || "—")}</b></div>
+        <div><span>Aurea değeri</span><b>${esc(p.true_label || "—")}</b></div>
       </div>
+      <p class="print-kicker">${esc(gapWord(p.direction || r.direction))}</p>
       <p class="print-verdict">${esc(r.headline || "")}</p>
+      ${r.summary ? `<p class="print-sum">${esc(r.summary)}</p>` : ""}
+      ${kararLine ? `<p class="print-sum">${esc(kararLine)}</p>` : ""}
       <div class="print-facts">
         <div><span>12 ay</span><b>${esc(p.minutes_365 ? fmtCount(p.minutes_365) + " dk" : "—")}</b></div>
         <div><span>G+A/90</span><b>${esc(fmtSmallNumber(p.contrib_p90))}</b></div>
@@ -941,7 +1033,6 @@ async function renderPlayer(id, gen) {
       <p class="sub">${clubHref ? `<a href="${esc(clubHref)}">${esc(clubShown || "—")}</a>` : esc(clubShown || "—")}${p.shirt ? " · #" + esc(p.shirt) : ""}${p.age ? " · " + esc(p.age) + " yaş" : ""}</p>
       <div class="player-actions no-print">
         <button class="btn" type="button" id="pdf-player">PDF indir</button>
-        <a class="btn ghost" href="/karsilastir?left=${esc(p.player_id || id)}">Karşılaştır</a>
         <button class="btn ghost" type="button" id="share-player">Paylaş</button>
       </div>
     </section>
@@ -984,7 +1075,7 @@ async function renderPlayer(id, gen) {
     <div class="group print-hide">
       <h3>Emsaller</h3>
       <div class="comps">
-        ${(data.similar || []).map((s) => `<a class="comp" href="/karsilastir?left=${esc(p.player_id || id)}&right=${esc(s.player_id)}"><b>${esc(tidyName(s.name))}</b><div class="comp-meta"><span>${esc(clubName(s.club) || "")}${s.age ? " · " + esc(Math.round(s.age)) + " yaş" : ""}</span><span>${esc(s.true_label || s.tm_label || "")}</span></div></a>`).join("")}
+        ${(data.similar || []).map((s) => `<a class="comp" href="${esc(s.href || playerHref(s.player_id, s.name))}"><b>${esc(tidyName(s.name))}</b><div class="comp-meta"><span>${esc(clubName(s.club) || "")}${s.age ? " · " + esc(Math.round(s.age)) + " yaş" : ""}</span><span>${esc(s.true_label || s.tm_label || "")}</span></div></a>`).join("")}
       </div>
     </div>
     </div>
@@ -1119,14 +1210,14 @@ function fxPts(p) {
 
 function fxPtsLabel(p) {
   const n = fxPts(p);
-  return n == null || !Number.isFinite(n) ? "—" : n.toFixed(1);
+  return n == null || !Number.isFinite(n) ? "—" : fmtOne(n);
 }
 
 function fxShirt(p, capName) {
   const name = fxName(p);
   const cap = String(p.player || "") === capName || String(p.display_name || "") === capName || foldTr(name) === foldTr(tidyName(capName));
   const pts = fxPtsLabel(p);
-  const price = p.price_m != null ? `${Number(p.price_m).toFixed(1)} mn` : "";
+  const price = p.price_m != null ? `${fmtOne(p.price_m)} mn` : "";
   const opp = p.fixture_opponent ? "vs " + p.fixture_opponent : "";
   return `<a class="shirt${cap ? " captain" : ""}" href="/ara?q=${encodeURIComponent(name)}">
     <b>${esc(name)}</b>
@@ -1251,7 +1342,7 @@ async function renderFantasy(gen) {
     view.innerHTML = `
       <section class="panel auth-card">
         <h1>TFF Fantezi Lig</h1>
-        <p class="lede">Hesabınıza girin. Kadro bu oturumda hesaplanır.</p>
+        <p class="lede">Hesabınıza girin. Kadro, bu oturumda hesaplanır.</p>
         <form id="fx-login" class="auth-form">
           <label>E-posta<input name="email" type="email" autocomplete="username" required></label>
           <label>Şifre<input name="password" type="password" autocomplete="current-password" required></label>
@@ -1304,7 +1395,7 @@ async function renderFantasy(gen) {
     <section class="panel page-head fantasy-head">
       <div>
         <h1>TFF Fantezi Lig</h1>
-        <p class="lede">${running ? esc(st.message || "Hesaplanıyor…") : (payload ? `Diziliş ${esc(result.formation || "")} · ${esc(Number(result.total_cost || 0).toFixed(1))} mn · kasa ${esc(Number(result.bank || 0).toFixed(1))} mn` : "Kadro henüz yok.")}</p>
+        <p class="lede">${running ? esc(st.message || "Hesaplanıyor…") : (payload ? `Diziliş ${esc(result.formation || "")} · ${esc(fmtOne(result.total_cost || 0))} mn · kasa ${esc(fmtOne(result.bank || 0))} mn` : "Kadro henüz yok.")}</p>
       </div>
       <button class="btn" id="fx-run" type="button" ${running ? "disabled" : ""}>${running ? "Hesaplanıyor…" : (payload ? "Yeniden hesapla" : "Kadro hesapla")}</button>
     </section>
@@ -1312,14 +1403,14 @@ async function renderFantasy(gen) {
     ${st.error ? `<p class="error">${esc(st.error)}</p>` : ""}
     ${payload ? `
       <div class="tri fantasy-meta">
-        <div class="price-card hero"><div class="k">İlk 11</div><div class="n">${esc(Number(result.xi_if_plays || result.total_projected || 0).toFixed(1))}</div><div class="hint">Seçim değeri ${esc(Number(result.total_projected || 0).toFixed(1))} · yedek ${esc(Number(result.bench_projected || 0).toFixed(1))}</div></div>
+        <div class="price-card hero"><div class="k">İlk 11</div><div class="n">${esc(fmtOne(result.xi_if_plays || result.total_projected || 0))}</div><div class="hint">Seçim değeri ${esc(fmtOne(result.total_projected || 0))} · yedek ${esc(fmtOne(result.bench_projected || 0))}</div></div>
         <div class="price-card"><div class="k">Kaptan</div><div class="n">${esc(tidyName(result.captain?.display_name || result.captain?.player || "—"))}</div><div class="hint">${esc(result.captain?.team || "")}${fxPts(result.captain) != null ? " · " + fxPtsLabel(result.captain) + " p" : ""}</div></div>
-        <div class="price-card"><div class="k">Menajer kartı</div><div class="n">${esc(card.use ? (card.card || "Kullan") : "Kart yok")}</div><div class="hint">${esc(card.why || "Bu hafta kart önermiyoruz.")}</div></div>
+        <div class="price-card"><div class="k">Menajer kartı</div><div class="n">${esc(card.use ? (card.card || "Kullan") : "Bu hafta yok")}</div><div class="hint">${esc(card.why || "Bu hafta menajer kartı kullanmayın.")}</div></div>
       </div>
       ${comps.length ? `<div class="group"><h3>Diziliş karşılaştırması</h3>
         <div class="form-picks">${comps.map((c, i) => `<button type="button" class="form-pick${c.formation === result.formation ? " on" : ""}" data-i="${i}">
           <b>${esc(c.formation)}</b>
-          <span>${esc(Number(c.expected_pts || 0).toFixed(1))} p${c.formation === result.formation ? " · seçildi" : ""}</span>
+          <span>${esc(fmtOne(c.expected_pts || 0))} p${c.formation === result.formation ? " · seçildi" : ""}</span>
         </button>`).join("")}</div>
       </div>` : ""}
       <div class="pitch" id="fx-pitch">${firstPaint.pitch}</div>
@@ -1329,7 +1420,10 @@ async function renderFantasy(gen) {
           ${watch.map((p) => `<a class="comp" href="/ara?q=${encodeURIComponent(fxName(p))}"><b>${esc(fxName(p))}</b><div class="comp-meta"><span>${esc(properCase(p.team) || "")} · ${esc(p.position || "")}</span><span>${fxPts(p) != null ? fxPtsLabel(p) + " p" : ""}</span></div></a>`).join("")}
         </div>
       </div>` : ""}
-      ${analysis.length ? `<div class="group analysis-prose"><h3>Analiz</h3>${analysis.map((s) => `<article><h4>${esc(s.title)}</h4><p>${esc(s.body)}</p></article>`).join("")}</div>` : ""}
+      ${analysis.length ? `<div class="group analysis-prose"><h3>Analiz</h3>${analysis.map((s) => {
+        const paras = (s.paragraphs && s.paragraphs.length) ? s.paragraphs : (s.body ? [s.body] : []);
+        return `<article><h4>${esc(s.title)}</h4>${paras.map((t) => `<p>${esc(t)}</p>`).join("")}</article>`;
+      }).join("")}</div>` : ""}
     ` : ""}
   `;
   const logout = document.getElementById("fx-logout");
@@ -1395,7 +1489,7 @@ async function renderFantasy(gen) {
 }
 
 async function renderScout(gen) {
-  view.innerHTML = waitScreen("Scout", "Ucuz etiket taranıyor.");
+  view.innerHTML = waitScreen("Scout", "Ucuz etiket listesi hazırlanıyor.");
   const data = await api("/api/scout");
   if (gen !== viewGen) return;
   const positions = data.positions || [];
@@ -1421,12 +1515,12 @@ async function renderScout(gen) {
   view.innerHTML = `
     <section class="panel page-head">
       <h1>Scout</h1>
-      <p class="lede">Transfermarkt etiketi, üretime dayalı Aurea değerinin altında kalan oyuncular.</p>
+      <p class="lede">Transfermarkt etiketi, üretim temelli Aurea değerinin altında kalan oyuncular.</p>
     </section>
     ${positions.map((pos) => `
       <section class="scout-block">
         <h2>${esc(pos.name)}</h2>
-        <div class="scout-list">${(pos.items || []).length ? pos.items.map(row).join("") : `<p class="sub">Bu mevkide eşik üstü isim yok.</p>`}</div>
+        <div class="scout-list">${(pos.items || []).length ? pos.items.map(row).join("") : `<p class="sub">Bu mevkide eşiği geçen oyuncu yok.</p>`}</div>
       </section>`).join("")}
   `;
   view.querySelectorAll(".scout-row").forEach((art) => {
@@ -1537,7 +1631,7 @@ async function renderCompare(gen) {
     <section class="panel page-head">
       <p class="kicker">Yan yana</p>
       <h1>Karşılaştır</h1>
-      <p class="lede">${leftId ? "Soldaki oyuncu sabit. Sağdaki isme basınca karşılaştırma açılır." : "Bir oyuncu dosyasındaki emsale basın; başlanan isim solda kalır."}</p>
+      <p class="lede">${leftId ? "Soldaki oyuncu sabit. Sağdaki ismi seçince karşılaştırma açılır." : "Bir oyuncu dosyasındaki emsali seçin; başlanan isim solda kalır."}</p>
       ${leftId ? "" : `<p class="sub">Karşılaştırma, oyuncu dosyasındaki emsallerden başlar.</p>`}
       <div class="compare-search">
         <div class="${leftId ? "locked-slot" : ""}">
@@ -1607,13 +1701,13 @@ async function renderClubs(gen) {
         <b>${esc(clubName(c.name))}</b>
         <span>${esc(c.league || "")} · ${esc(fmtCount(c.players))} oyuncu</span>
         <span>Aurea ${esc(c.true_label || "—")} · TM ${esc(c.tm_label || "—")}</span>
-        <span class="club-gaps">${c.cheap ? `<em class="dusuk">${esc(c.cheap)} ucuz</em>` : ""}${c.rich ? `<em class="yuksek">${esc(c.rich)} pahalı</em>` : ""}</span>
+        <span class="club-gaps">${c.cheap ? `<em class="dusuk">${esc(c.cheap)} ucuz etiket</em>` : ""}${c.rich ? `<em class="yuksek">${esc(c.rich)} piyasa primi</em>` : ""}</span>
       </a>`).join("") || `<p class="sub">Kulüp yok.</p>`;
   };
   view.innerHTML = `
     <section class="panel page-head">
       <h1>Kulüpler</h1>
-      <p class="lede">Kulübe girin. Gelenler ve kadro her kulüp için ayrı durur.</p>
+      <p class="lede">Bir kulübe girin. Gelenler ve kadro, her kulüp için ayrı tutulur.</p>
       <form class="filters" id="club-filt">
         <input id="club-q" placeholder="Kulüp ara" />
       </form>
@@ -1623,12 +1717,12 @@ async function renderClubs(gen) {
   paint(clubs);
   document.getElementById("club-q").addEventListener("input", (e) => {
     const n = foldTr(e.target.value.trim());
-    paint(n ? clubs.filter((c) => foldTr(c.name).includes(n) || foldTr(c.league).includes(n)) : clubs);
+    paint(n ? clubs.filter((c) => clubTextMatch(c.name, n) || clubTextMatch(c.league, n)) : clubs);
   });
 }
 
 async function renderClub(token, gen) {
-  view.innerHTML = waitScreen("Kulüp kadrosu", "Oyuncular sıralanıyor.");
+  view.innerHTML = waitScreen("Kulüp kadrosu", "Kadro hazırlanıyor.");
   const data = await api(`/api/clubs/${encodeURIComponent(token)}`);
   if (gen !== viewGen) return;
   document.title = `${data.name || "Kulüp"} · Aurea`;
@@ -1665,7 +1759,7 @@ async function renderClub(token, gen) {
       <h1>${esc(clubName(data.name) || "Kulüp")}</h1>
       <p class="lede">${esc(fmtCount(data.players))} oyuncu · Aurea ${esc(data.true_label || "—")} · Transfermarkt ${esc(data.tm_label || "—")}</p>
     </section>
-    ${(moves.in || []).length ? `<div class="group"><h3>Gelenler</h3><div class="deals" style="padding:12px">${(moves.in || []).map(dealCard).join("")}</div></div>` : `<p class="sub">Bu sezon için gelen kaydı henüz yok veya okunamadı.</p>`}
+    ${(moves.in || []).length ? `<div class="group"><h3>Gelenler</h3><div class="deals deals-pad">${(moves.in || []).map(dealCard).join("")}</div></div>` : `<p class="sub">Bu sezon için gelen kaydı henüz yok veya okunamadı.</p>`}
     <div class="duo">
       <div class="price-card hero"><div class="k">Aurea toplamı</div><div class="n">${esc(data.true_label || "—")}</div></div>
       <div class="price-card"><div class="k">Transfermarkt toplamı</div><div class="n">${esc(data.tm_label || "—")}</div></div>
@@ -1717,7 +1811,7 @@ async function render() {
     else if (parts[0] === "oyuncu" && parts[1]) await renderPlayer(parsePlayerToken(parts[1]) || parts[1], gen);
     else if (parts[0] === "kulupler") await renderClubs(gen);
     else if (parts[0] === "kulup" && parts[1]) await renderClub(parts[1], gen);
-    else if (parts[0] === "karsilastir") await renderCompare(gen);
+    else if (parts[0] === "karsilastir") { go("/", true); return; }
     else {
       const pulse = await api("/api/pulse");
       if (gen !== viewGen) return;

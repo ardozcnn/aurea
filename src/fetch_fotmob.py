@@ -37,16 +37,26 @@ def _get_json(path: str, cache_key: str, max_age_hours: float) -> Any:
                 return json.loads(target.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 pass
-    response = requests.get(
-        f"{FOTMOB_BASE}/{path.lstrip('/')}",
-        headers={"User-Agent": "Mozilla/5.0"},
-        timeout=30,
-        verify=os.environ.get("FBREF_SSL_VERIFY", "0") not in ("0", "false", "False"),
-    )
-    response.raise_for_status()
-    payload = response.json()
-    target.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-    return payload
+    verify = os.environ.get("FBREF_SSL_VERIFY", "0") not in ("0", "false", "False")
+    last = None
+    for attempt in range(3):
+        try:
+            response = requests.get(
+                f"{FOTMOB_BASE}/{path.lstrip('/')}",
+                headers={"User-Agent": "Mozilla/5.0", "Connection": "close"},
+                timeout=30,
+                verify=verify,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            target.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            return payload
+        except Exception as exc:
+            last = exc
+            if attempt >= 2:
+                raise
+            time.sleep(0.7 * (attempt + 1))
+    raise last
 
 
 def _same_team(left: str, right: str) -> bool:

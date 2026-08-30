@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 import warnings
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,7 @@ from typing import Any
 import pandas as pd
 import requests
 import urllib3
+from requests.adapters import HTTPAdapter
 
 from .config import is_quiet
 
@@ -36,6 +38,72 @@ VERIFY_SSL = os.environ.get("FBREF_SSL_VERIFY", "0").strip().lower() not in (
     "false",
     "no",
 )
+
+
+def is_conn_fail(exc: BaseException) -> bool:
+    if isinstance(
+        exc,
+        (
+            PermissionError,
+            ConnectionError,
+            TimeoutError,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
+        ),
+    ):
+        return True
+    text = str(exc).lower()
+    return (
+        "connection aborted" in text
+        or "permission denied" in text
+        or "winerror 13" in text
+        or "connection reset" in text
+        or "remotely aborted" in text
+    )
+
+
+def network_message(exc: BaseException) -> str:
+    if is_conn_fail(exc):
+        return (
+            "TFF veya dış kaynaklara bağlanılamadı. "
+            "Güvenlik duvarı, antivirüs veya geçici bir ağ kesintisi isteği engellemiş olabilir. "
+            "Birkaç saniye sonra tekrar deneyin."
+        )
+    return str(exc) or "Bağlantı kurulamadı."
+
+
+def request_retry(
+    session: requests.Session,
+    method: str,
+    url: str,
+    *,
+    attempts: int = 3,
+    **kwargs: Any,
+):
+    method = method.upper()
+    kwargs.setdefault("timeout", 30)
+    kwargs.setdefault("verify", VERIFY_SSL)
+    last: Exception | None = None
+    for i in range(max(1, attempts)):
+        try:
+            if method == "GET":
+                return session.get(url, **kwargs)
+            if method == "POST":
+                return session.post(url, **kwargs)
+            raise ValueError(method)
+        except Exception as exc:
+            last = exc
+            if not is_conn_fail(exc) or i >= attempts - 1:
+                raise
+            time.sleep(0.7 * (i + 1))
+            try:
+                session.close()
+            except Exception:
+                pass
+            session.mount("https://", HTTPAdapter())
+            session.mount("http://", HTTPAdapter())
+    raise last
+
 
 AUTH_COOKIE_NAMES = (
     "kc_access_token",
@@ -178,7 +246,11 @@ def _token_from_cookie_header(cookie: str, name: str) -> str | None:
 
 def refresh_access_token(refresh_token: str) -> dict[str, str]:
     """Keycloak public client refresh (client_id=web-client)."""
-    r = requests.post(
+    s = requests.Session()
+    s.headers["Connection"] = "close"
+    r = request_retry(
+        s,
+        "POST",
         KEYCLOAK_TOKEN_URL,
         data={
             "grant_type": "refresh_token",
@@ -235,7 +307,11 @@ def load_saved_login() -> tuple[str | None, str | None]:
 
 def login_with_password(email: str, password: str) -> dict[str, str]:
     """Keycloak password grant → kc_access_token + kc_refresh_token dosyaya yazılır."""
-    r = requests.post(
+    s = requests.Session()
+    s.headers["Connection"] = "close"
+    r = request_retry(
+        s,
+        "POST",
         KEYCLOAK_TOKEN_URL,
         data={
             "grant_type": "password",
@@ -279,6 +355,7 @@ def _session(cookie: str | None = None) -> requests.Session:
             "Accept": "application/json, text/plain, */*",
             "Referer": f"{TFF_BASE}/istatistikler",
             "Origin": TFF_BASE,
+            "Connection": "close",
         }
     )
     raw = cookie or os.environ.get("TFF_COOKIE")
@@ -339,7 +416,9 @@ def login(email: str | None = None, password: str | None = None) -> requests.Ses
             "Site: https://tfffantezilig.com (istatistikler giriş ister)."
         )
     s = _session()
-    r = s.post(
+    r = request_retry(
+        s,
+        "POST",
         f"{TFF_BASE}/api/auth/login",
         json={"email": email.strip(), "password": password},
         timeout=30,
@@ -369,7 +448,7 @@ def backend_get(
     path = path.lstrip("/")
     s = session or _session(cookie)
     url = f"{TFF_BASE}/api/backend/{path}"
-    r = s.get(url, params=params, timeout=timeout, verify=VERIFY_SSL)
+    r = request_retry(s, "GET", url, params=params, timeout=timeout, verify=VERIFY_SSL)
     if r.status_code in (401, 403):
         raise TFFAuthError(
             f"TFF oturumu geçersiz (HTTP {r.status_code}) path={path}. "
@@ -743,6 +822,13 @@ def fetch_tff_prices(
             login_with_password(email, password)
         except TFFAuthError:
             session = login(email, password)
+        except Exception as exc:
+            if not is_conn_fail(exc):
+                raise
+            try:
+                session = login(email, password)
+            except Exception:
+                raise RuntimeError(network_message(exc)) from exc
 
     endpoint = url or os.environ.get("TFF_PLAYERS_URL") or ""
     attempts: list[str] = []
@@ -752,7 +838,7 @@ def fetch_tff_prices(
 
     if endpoint:
         s = session or _session(cookie)
-        r = s.get(endpoint, timeout=timeout, verify=VERIFY_SSL)
+        r = request_retry(s, "GET", endpoint, timeout=timeout, verify=VERIFY_SSL)
         attempts.append(f"{endpoint} → {r.status_code}")
         if r.status_code in (401, 403):
             raise TFFAuthError(f"TFF URL yetkisiz ({r.status_code}): {endpoint}")

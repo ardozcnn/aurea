@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.config import LEAGUE_NAMES, POSITION_TR, SUB_POSITION_TR
-from app.money import GAP_CHEAP, GAP_RICH, format_eur, format_pct, gap_direction
+from app.money import GAP_CHEAP, GAP_RICH, format_eur, format_pct, format_tr_num, gap_direction
 from app.slugs import club_display, is_free_agent
 
 
@@ -45,10 +45,21 @@ def _starter_minutes(position: str | None) -> int:
 
 
 def _comma(value: float, digits: int = 2) -> str:
-    text = f"{value:.{digits}f}".replace(".", ",")
-    if digits == 2 and text.endswith(",00"):
-        return text[:-3]
-    return text
+    return format_tr_num(value, digits)
+
+
+def _yuzde(value) -> str:
+    try:
+        n = abs(float(value))
+    except (TypeError, ValueError):
+        return ""
+    if n != n:
+        return ""
+    return f"yüzde {int(round(n))}"
+
+
+def _yil(value) -> str:
+    return f"{format_tr_num(value, 1)} yıl"
 
 
 def _fotmob(live: dict | None) -> dict[str, Any]:
@@ -87,74 +98,98 @@ def build_report(row: dict, similar: list[dict], live: dict | None) -> dict[str,
     gap_eur = tm_n - true_n if tm_n and true_n else 0.0
     pos_raw = str(row.get("position") or "")
     fm = _fotmob(live)
+    starts = int(fm.get("starts") or 0)
+    apps_fm = int(fm.get("apps") or 0)
+    start_share = (starts / apps_fm) if apps_fm >= 4 else None
+    hedef = _starter_minutes(pos_raw)
+    if minutes >= hedef * 0.85 and (start_share is None or start_share >= 0.70):
+        rol = "as"
+    elif minutes >= 900 or (start_share is not None and start_share >= 0.40):
+        rol = "rotasyon"
+    else:
+        rol = "kenar"
 
-    prod_ok = minutes >= _starter_minutes(pos_raw) * 0.75
+    prod_ok = minutes >= hedef * 0.75
     if pos_raw == "Attack":
         prod_ok = prod_ok or (minutes >= 1000 and contrib_p90 >= 0.40)
     elif pos_raw == "Midfield":
         prod_ok = prod_ok or (minutes >= 1200 and contrib_p90 >= 0.22)
     elif pos_raw == "Goalkeeper":
         prod_ok = minutes >= 1800
-    if direction == "dusuk":
+    if rol == "as":
+        prod_ok = True
+    elif rol == "kenar":
+        prod_ok = False
+
+    gap_txt = f" Fark {format_eur(abs(gap_eur))}." if abs(gap_eur) >= 200_000 else ""
+    if direction == "dusuk" and rol == "kenar":
+        verdict_title = "Etiket ucuz görünüyor"
+        verdict_body = (
+            f"Transfermarkt {format_eur(tm)}, Aurea değeri {format_eur(true)}. "
+            "Piyasa, üretime göre daha düşük yazıyor. "
+            "Dakika ve ilk 11 payı ince olduğu için bu ucuzluk yanıltıcı olabilir; "
+            "önce rol, sağlık ve sözleşme netleşir."
+            f"{gap_txt}"
+        )
+    elif direction == "dusuk":
         verdict_title = "Etiket üretimden geride"
         verdict_body = (
             f"Transfermarkt {format_eur(tm)}, Aurea değeri {format_eur(true)}. "
-            "Üretime göre piyasa daha düşük yazıyor. "
-            "Bu bir fırsat olabilir; önce rol, sağlık ve sözleşmeye bakılır."
+            "As kadro temposu varken piyasa etiketi üretim tabanının altında. "
+            "Bu bir fırsat olabilir; sağlık ve sözleşme dosyada doğrulanır."
+            f"{gap_txt}"
         )
-        if abs(gap_eur) >= 200_000:
-            verdict_body += f" Boşluk {format_eur(abs(gap_eur))}."
     elif direction == "yuksek" and prod_ok:
         verdict_title = "Piyasa primi var"
         verdict_body = (
-            f"Transfermarkt {format_eur(tm)}, Aurea {format_eur(true)}. "
+            f"Transfermarkt {format_eur(tm)}, Aurea değeri {format_eur(true)}. "
             "Aurea bir üretim tabanıdır. Büyük lig, isim veya yaş primi etiketi sık yükseltir; "
-            "bu tek başına şişirme değildir. Dakika ve katkı da güçlüyse prim savunulur."
+            "bu, tek başına yanıltıcı bir fark değildir. Dakika ve katkı da güçlüyse prim savunulur."
         )
         if abs(gap_eur) >= 400_000:
             verdict_body += f" Fark {format_eur(abs(gap_eur))}."
     elif direction == "yuksek":
         verdict_title = "Etiket üretimden kopuk"
         verdict_body = (
-            f"Transfermarkt {format_eur(tm)}, Aurea {format_eur(true)}. "
+            f"Transfermarkt {format_eur(tm)}, Aurea değeri {format_eur(true)}. "
             "Dakika veya katkı zayıfken etiket yüksek kalmış. "
-            "Prim, isim veya gelecek beklentisine dayanıyor olabilir."
+            "Prim; isim, gelecek beklentisi veya eski formaya dayanıyor olabilir."
+            f"{gap_txt}"
         )
-        if abs(gap_eur) >= 200_000:
-            verdict_body += f" Fark {format_eur(abs(gap_eur))}."
     else:
-        verdict_title = "İki tutar yakın"
+        verdict_title = "İki tutar aynı bantta"
         verdict_body = (
             f"Transfermarkt {format_eur(tm)}, Aurea değeri {format_eur(true)}. "
-            "Piyasa ile üretim aynı bantta. Hamle, ihtiyaç ve sözleşmeye kalır."
+            "Piyasa ile üretim aynı aralıkta. Hamle, ihtiyaç ve sözleşmeye kalır."
         )
 
     kim = []
+    pos_run = (pos[:1].lower() + pos[1:]) if pos else pos
     if is_free_agent(club) or club == "Kulüpsüz":
         kim.append(
-            f"{name}, {years} yaşında {pos}. Şu an kulüpsüz. Lig kaydı {league}."
+            f"{name}, {years} yaşında, {pos_run}. Şu anda kulüpsüz. Lig kaydı: {league}."
         )
-        kim.append("Kulüp bağı kopunca etiket alıcı kümesine ve sözleşmeye daha bağlı okunur.")
+        kim.append("Kulüp bağı kopunca etiket, alıcı kümesine ve sözleşmeye daha bağlı okunur.")
     else:
         kim.append(
-            f"{name}, {years} yaşında {pos}. Şu an {club} forması giyiyor; lig {league}."
+            f"{name}, {years} yaşında, {pos_run}. Şu anda {club} forması giyiyor; lig {league}."
         )
     if age <= 21:
         kim.append(
-            "Henüz kariyerinin başında. Bu yaşta as kadro dakikası tutarsa değer hızlı yükselir. "
-            "Az oynuyorsa etiket çoğu zaman umut fiyatıdır; henüz kanıtlanmış üretim değildir."
+            "Kariyerinin başında. Bu yaşta as kadro dakikası tuttuğunda değer hızlı yükselir. "
+            "Dakikası azsa etiket çoğu zaman umut fiyatıdır; henüz kanıtlanmış üretim değildir."
         )
         if minutes < 400:
-            kim.append("Son 12 ayda dakika çok az. Bu yüzden fiyat spekülatif kalır; hüküm temkinli okunmalı.")
+            kim.append("Son 12 ayda dakika çok az. Bu yüzden fiyat spekülatif kalır; hüküm temkinli okunmalıdır.")
         elif minutes >= 1200:
-            kim.append("Bu yaşta bu kadar dakika, kulüp için gerçek bir varlık birikimidir.")
+            kim.append("Bu yaşta bu kadar dakika, kulüp için ölçülebilir bir varlık birikimidir.")
     elif age <= 24:
         kim.append(
-            "Zirve öncesi yaş. En verimli yıllar henüz gelmemiş olabilir. "
-            "Düzenli oynayan bu gruptaki oyuncu hem bugünü hem yarını fiyatlar."
+            "Zirve öncesi yaş bandında. En verimli yıllar henüz gelmemiş olabilir. "
+            "Düzenli süre alan bu gruptaki oyuncu hem bugünü hem yarını fiyatlar."
         )
         if minutes >= 1800:
-            kim.append("Rotasyon değil; as kadro temposu. Kulüp ona güveniyor.")
+            kim.append("Rotasyon değil; as kadro temposu. Kulüp, bu isme güvenilir süre vermiş.")
     elif age <= 28:
         kim.append(
             "Futbolcunun en verimli yaş aralığında. Burada sapma genelde form, sakatlık veya rol değişiminden gelir; "
@@ -165,7 +200,7 @@ def build_report(row: dict, similar: list[dict], live: dict | None) -> dict[str,
     elif age <= 32:
         kim.append(
             "Zirve sonrası. Alıcı, kalan sözleşme yılına ve sakatlık geçmişine daha sıkı bakar. "
-            "Yüksek etiket ancak hâlâ as kadroysa savunulur."
+            "Yüksek etiket ancak hâlâ as kadrodaysa savunulur."
         )
         if contract <= 1:
             kim.append("Sözleşme kısa. Serbest kalma penceresi yakın; satıcı pazarlık gücünü kaybeder.")
@@ -176,7 +211,12 @@ def build_report(row: dict, similar: list[dict], live: dict | None) -> dict[str,
         )
 
     oyun = []
-    hedef = _starter_minutes(pos_raw)
+    if rol == "as":
+        oyun.append("Rol: as kadro. Süre ve ilk 11 payı, takımın bu isme güvendiğini gösterir.")
+    elif rol == "rotasyon":
+        oyun.append("Rol: rotasyon. Düzenli süre vardır; her hafta tam 90 dakika beklenmez.")
+    else:
+        oyun.append("Rol: kenar veya belirsiz. Dakika ince; yüksek etiket çoğu zaman isim veya umut primidir.")
     if minutes_2y < 400:
         oyun.append(
             f"Son iki sezonda yalnızca {int(minutes_2y)} dakika var. "
@@ -189,18 +229,18 @@ def build_report(row: dict, similar: list[dict], live: dict | None) -> dict[str,
             f"Son 12 ayda {int(minutes)} dakika."
         )
         if minutes >= hedef:
-            oyun.append("Kalede as numara temposu; düzenli oynuyor.")
+            oyun.append("Kalede as numara temposu; düzenli süre alıyor.")
         elif minutes < 900:
-            oyun.append("Kalede dakika kırılmamış. Yedek veya paylaşılmış kalesi olabilir.")
+            oyun.append("Kalede dakika kırılmamış. Yedek veya paylaşılmış kale olabilir.")
     else:
         oyun.append(
             f"Son iki sezon {int(apps)} maç, {int(goals)} gol, {int(assists)} asist, "
-            f"{int(minutes_2y)} dakika. Son 12 ayda {int(minutes)} dakika oynadı."
+            f"{int(minutes_2y)} dakika. Son 12 ayda {int(minutes)} dakika süre aldı."
         )
         if minutes >= hedef:
             oyun.append(
-                f"As kadro dakikası. {hedef} dakikanın üzerinde olmak, takımın ona güvendiğini gösterir. "
-                "Üretim ölçülebilir; etiket spekülasyona daha az açık."
+                f"As kadro dakikası. {hedef} dakikanın üzerinde olmak, takımın bu isme güvendiğini gösterir. "
+                "Üretim ölçülebilir; etiket spekülasyona daha az açıktır."
             )
         elif minutes >= 900:
             oyun.append(
@@ -209,7 +249,7 @@ def build_report(row: dict, similar: list[dict], live: dict | None) -> dict[str,
             )
         else:
             oyun.append(
-                "Dakika az. Ya yeni geldi, ya sakatlık kesti, ya da kadroda arka planda. "
+                "Dakika az. Ya yeni gelmiştir, ya sakatlık kesmiştir, ya da kadroda arka plandadır. "
                 "Bu durumda yüksek etiket çoğu zaman isim primidir."
             )
         if contrib_p90 >= 0.55 and pos_raw in ("Attack", "Midfield"):
@@ -221,7 +261,7 @@ def build_report(row: dict, similar: list[dict], live: dict | None) -> dict[str,
         elif contrib_p90 <= 0.18 and pos_raw == "Attack" and minutes_2y >= 800:
             oyun.append(
                 f"Forvet olarak 90 dakikada yalnızca {_comma(contrib_p90)} gol ve asist. "
-                "Hücum üretimi zayıfken yüksek etiket şişmiş olabilir."
+                "Hücum üretimi zayıfken yüksek etiket gerçek üretimden kopuk olabilir."
             )
         elif contrib_p90 >= 0.30 and pos_raw in ("Attack", "Midfield"):
             oyun.append(
@@ -282,7 +322,7 @@ def build_report(row: dict, similar: list[dict], live: dict | None) -> dict[str,
                 elif oran >= 42:
                     bit += " Kaleyi bulan şut oranı yüksek."
                 elif shots >= 18 and oran < 32:
-                    bit += " Hacim yüksek, isabet düşük; bitiricilik soğuk olabilir."
+                    bit += " Hacim yüksek, isabet düşük; bitiricilik geride kalmış olabilir."
                 guncel.append(bit)
         if fm.get("xg_p90") or fm.get("goals_p90"):
             guncel.append(
@@ -306,16 +346,22 @@ def build_report(row: dict, similar: list[dict], live: dict | None) -> dict[str,
             guncel.append(f"Pas isabeti yüzde {_comma(_n(fm.get('pass_pct')), 1)}.")
         if fm.get("dribbles") and pos_raw in ("Attack", "Midfield"):
             guncel.append(f"Başarılı dribling: {int(fm['dribbles'])}.")
-    starts = int(fm.get("starts") or 0)
-    apps_fm = int(fm.get("apps") or 0)
     if apps_fm >= 4:
         share = starts / apps_fm
         if share >= 0.78:
-            oyun.append(f"Bu sezon {starts}/{apps_fm} ilk 11; as kadro rolü. Kulüp onu bırakmıyor.")
+            oyun.append(
+                f"Bu sezon {starts}/{apps_fm} ilk 11; as kadro rolü. Kulüp, bu ismi düzenli olarak sahaya sürüyor."
+            )
         elif share <= 0.40:
-            oyun.append(f"Bu sezon {starts}/{apps_fm} ilk 11; rotasyon veya kenar rolü. Etiket as kadroya yazılmışsa şişer.")
+            oyun.append(
+                f"Bu sezon {starts}/{apps_fm} ilk 11; rotasyon veya kenar rolü. "
+                "Etiket as kadroya yazılmışsa gerçek üretimden kopar."
+            )
         else:
-            oyun.append(f"Bu sezon {starts}/{apps_fm} ilk 11; paylaşılmış dakika. Fiyat, tam as ile yedek arasında okunur.")
+            oyun.append(
+                f"Bu sezon {starts}/{apps_fm} ilk 11; paylaşılmış dakika. "
+                "Fiyat, tam as ile yedek arasında okunur."
+            )
     if pos_raw == "Defender" and minutes >= 1800:
         oyun.append("Defansta as kadro dakikası istikrardır; gol temposu ikincildir. Burada süre tutuluyorsa profil sağlamdır.")
     elif pos_raw == "Midfield" and contrib_p90 >= 0.32 and minutes >= 1400:
@@ -328,27 +374,27 @@ def build_report(row: dict, similar: list[dict], live: dict | None) -> dict[str,
     fiyat = []
     fiyat.append(
         "Sitede iki tutar vardır. Transfermarkt, piyasanın bugün yazdığı etikettir. "
-        "Aurea değeri, güncel etiketi modele sokmadan; dakika, yaş, lig ve emsalden hesaplanır."
+        "Aurea değeri, güncel etiketi modele sokmadan dakika, yaş, lig ve emsalden hesaplanır."
     )
     if tm_n and true_n:
         if gap_eur > 800_000 and not prod_ok:
             fiyat.append(
-                f"Transfermarkt {format_eur(tm)}, Aurea {format_eur(true)}. "
+                f"Transfermarkt {format_eur(tm)}, Aurea değeri {format_eur(true)}. "
                 "Fark geniş ve üretim zayıf; prim büyük ölçüde isim veya beklenti."
             )
         elif gap_eur > 400_000:
             fiyat.append(
-                f"Transfermarkt {format_eur(tm)}, Aurea {format_eur(true)}. "
+                f"Transfermarkt {format_eur(tm)}, Aurea değeri {format_eur(true)}. "
                 "Piyasa daha yüksek yazıyor. Büyük ligde bu prim sık görülür; Aurea tabanı hatırlatır."
             )
         elif gap_eur < -400_000:
             fiyat.append(
-                f"Transfermarkt {format_eur(tm)}, Aurea {format_eur(true)}. "
+                f"Transfermarkt {format_eur(tm)}, Aurea değeri {format_eur(true)}. "
                 "Piyasa daha düşük yazıyor. Üretim henüz etikete yansımamış olabilir."
             )
         else:
             fiyat.append(
-                f"Transfermarkt {format_eur(tm)}, Aurea {format_eur(true)}. "
+                f"Transfermarkt {format_eur(tm)}, Aurea değeri {format_eur(true)}. "
                 "İki tutar yakın; piyasa üretimi büyük ölçüde fiyatlamış."
             )
         if peak >= 1_000_000 and tm_n and peak > tm_n * 1.25:
@@ -369,15 +415,20 @@ def build_report(row: dict, similar: list[dict], live: dict | None) -> dict[str,
         fiyat.append("Karşılaştırma için yeterli tutar yok.")
 
     action = []
-    if direction == "dusuk" and minutes >= 900:
+    if direction == "dusuk" and rol == "as":
         action.append(
-            "Düzenli oynuyor ve etiket üretimden geride. "
-            "Sağlık ve sözleşme dosyada doğrulanırsa takip listesine alınır."
+            "Düzenli as kadro ve etiket üretimden geride. "
+            "Sağlık ve sözleşme dosyada doğrulanırsa öncelikli izleme listesine alınır."
+        )
+    elif direction == "dusuk" and rol == "rotasyon":
+        action.append(
+            "Etiket ucuz görünüyor; rol ise rotasyon. "
+            "As kadro payı artarsa boşluk anlam kazanır; aksi halde ucuzluk yanıltır."
         )
     elif direction == "dusuk":
         action.append(
-            "Etiket ucuz görünüyor fakat dakika az. Ucuzluk, oynamadığı için de oluşmuş olabilir. "
-            "Önce rol netleşmeli."
+            "Etiket ucuz görünüyor fakat dakika az. Ucuzluk, süre almadığı için de oluşmuş olabilir. "
+            "Önce rol netleşmelidir."
         )
     elif direction == "yuksek" and prod_ok:
         action.append(
@@ -386,11 +437,11 @@ def build_report(row: dict, similar: list[dict], live: dict | None) -> dict[str,
         )
     elif direction == "yuksek":
         action.append(
-            "Etiket yüksek, üretim geride. Önce dakika ve rol netleşmeli; "
+            "Etiket yüksek, üretim geride. Önce dakika ve rol netleşmelidir; "
             "yalnızca isim primi zayıf bir gerekçedir."
         )
     else:
-        action.append("Fiyat ile oyun uyumlu. Hamle ihtiyaca kalır; sapma söylemi zayıf.")
+        action.append("Fiyat ile oyun uyumlu. Hamle ihtiyaca kalır; sapma söylemi zayıf kalır.")
 
     soz = []
     if contract <= 0.7:
@@ -398,13 +449,13 @@ def build_report(row: dict, similar: list[dict], live: dict | None) -> dict[str,
             "Sözleşme bir yıldan kısa. Serbest kalma yakın. Satıcı prim isteyemez; alıcı güçlenir."
         )
     elif contract <= 1.2:
-        soz.append(f"Kalan sözleşme yaklaşık {contract:.1f} yıl. Pazarlık penceresi daralıyor.")
+        soz.append(f"Kalan sözleşme yaklaşık {_yil(contract)}. Pazarlık penceresi daralıyor.")
     elif contract >= 4:
         soz.append(
-            f"Sözleşme yaklaşık {contract:.1f} yıl. Kulüp oyuncuyu uzun süre elinde tutar; satıcı güçlüdür."
+            f"Sözleşme yaklaşık {_yil(contract)}. Kulüp oyuncuyu uzun süre elinde tutar; satıcı güçlüdür."
         )
     else:
-        soz.append(f"Kalan sözleşme yaklaşık {contract:.1f} yıl. Süre makul; acil satış baskısı yok.")
+        soz.append(f"Kalan sözleşme yaklaşık {_yil(contract)}. Süre makul; acil satış baskısı yok.")
     if caps >= 50:
         soz.append(f"Milli forma: {int(caps)} maç. Düzenli milli dakika, alıcı kümesini genişletir.")
     elif caps >= 8:
@@ -424,7 +475,7 @@ def build_report(row: dict, similar: list[dict], live: dict | None) -> dict[str,
             saglik.append(
                 f"Son kayıtlı sakatlık: {last.get('injury') or 'belirtilmemiş'} "
                 f"({last.get('season') or '—'}, {last.get('days') or 0} gün). "
-                "Şu an açık görünmüyor; yine de geçmişe bakılır."
+                "Şu anda açık görünmüyor; yine de geçmişe bakılır."
             )
         hist = live.get("market_history") or []
         if len(hist) >= 2:
@@ -501,20 +552,21 @@ def build_report(row: dict, similar: list[dict], live: dict | None) -> dict[str,
     hurt_now = bool((live or {}).get("injury_days"))
     if hurt_now:
         karar.append("Açık sakatlık varken yüksek bedel ve kesin hüküm ertelenir. Dönüş netleşince dosya yeniden okunur.")
-    elif direction == "dusuk" and prod_ok and age <= 26:
+    elif direction == "dusuk" and rol == "as" and age <= 26:
         karar.append(
-            "Genç, düzenli ve etiket üretimden geride. Sağlık ile sözleşme temizse bu profil takip listesinin üstüne alınır."
+            "Genç, as kadroda ve etiket üretimden geride. "
+            "Sağlık ile sözleşme temizse bu profil öncelikli izleme listesine alınır."
         )
-    elif direction == "dusuk" and prod_ok:
+    elif direction == "dusuk" and rol == "as":
         karar.append("Düzenli üretim var, etiket geride. Rol değişmezse piyasanın Aurea’ya yaklaşması beklenir.")
     elif direction == "dusuk":
-        karar.append("Etiket ucuz görünüyor fakat dakika ince. Önce as kadro rolü kanıtlanmalı; aksi halde ucuzluk yanıltır.")
+        karar.append("Etiket ucuz görünüyor fakat dakika ince. Önce as kadro rolü kanıtlanmalıdır; aksi halde ucuzluk yanıltır.")
     elif direction == "yuksek" and prod_ok and age <= 24:
         karar.append("Prim var ama yaş ve tempo bunu kısmen taşır. Alım, sağlık ve ilk 11 payı sürerse anlamlıdır.")
     elif direction == "yuksek" and prod_ok:
-        karar.append("Piyasa primi var; oyun da taşıyor. Reddetmek için tek gerekçe etiket olmamalı.")
+        karar.append("Piyasa primi var; oyun da taşıyor. Reddetmek için tek gerekçe etiket olmamalıdır.")
     elif direction == "yuksek":
-        karar.append("Etiket yüksek, üretim geride. İsim veya gelecek primi olabilir; önce dakika ve rol netleşmeli.")
+        karar.append("Etiket yüksek, üretim geride. İsim veya gelecek primi olabilir; önce dakika ve rol netleşmelidir.")
     else:
         karar.append("İki tutar ve oyun aynı bantta. Hamle ihtiyaca, sözleşmeye ve sağlığa kalır.")
     if contract <= 0.8 and direction != "yuksek":
@@ -531,7 +583,10 @@ def build_report(row: dict, similar: list[dict], live: dict | None) -> dict[str,
             {
                 "id": "guncel-uretim",
                 "title": "Güncel üretim",
-                "paragraphs": guncel + ["Gol, şut ve beklenen gol rakamları FotMob kaydından okunur. Harici maç notu puan olarak gösterilmez."],
+                "paragraphs": guncel + [
+                    "Gol, şut ve beklenen gol rakamları FotMob kaydından okunur. "
+                    "Harici maç notu, sitede puan olarak gösterilmez."
+                ],
                 "body": " ".join(guncel),
             }
         )
@@ -565,13 +620,14 @@ def build_report(row: dict, similar: list[dict], live: dict | None) -> dict[str,
     if fm.get("clean_sheets"):
         metrics.append({"k": "Gol yemeden", "v": str(int(fm.get("clean_sheets") or 0))})
     headline = verdict_title
-    if gap is not None:
+    mag_txt = _yuzde(gap) if gap is not None else ""
+    if mag_txt:
         try:
             mag = abs(float(gap))
         except (TypeError, ValueError):
             mag = 0.0
         if mag >= 1:
-            headline = f"{verdict_title} (yüzde {int(round(mag))})"
+            headline = f"{verdict_title}: {mag_txt}."
     summary = verdict_body
     if karar:
         summary = (verdict_body + " " + karar[0]).strip()
@@ -611,13 +667,13 @@ def _xg_read(
             )
         elif xg >= 2.2 and goals < xg * 0.72:
             bits.append(
-                f"{name} şans buluyor ama soğuk: {_comma(goals)} gol, {_comma(xg)} xG. "
-                "Pozisyon geliyor; isabet düşük. Tempo xG’ye yaklaşırsa gol artar."
+                f"{name} şans buluyor ama bitiricilik geride: {_comma(goals)} gol, {_comma(xg)} xG. "
+                "Pozisyon geliyor; isabet düşük. Tempo beklenen gole yaklaşırsa gol artar."
             )
         elif xg >= 2.0 and goals > xg * 1.35:
             bits.append(
                 f"{name} beklenen golün üzerinde koşuyor: {_comma(goals)} gol, {_comma(xg)} xG. "
-                "Bir kısmı form veya şans; sürdürülebilir tempo xG’ye daha yakındır."
+                "Bir kısmı form veya şans olabilir; sürdürülebilir tempo beklenen gole daha yakındır."
             )
         elif delta <= -0.8:
             bits.append(
@@ -627,7 +683,7 @@ def _xg_read(
         elif delta >= 0.9:
             bits.append(
                 f"{name} beklenen golün üzerinde: {_comma(goals)} gol, {_comma(xg)} xG. "
-                "Şu anki gol temposu biraz şişmiş olabilir."
+                "Şu andaki gol temposu, sürdürülebilir düzeyin biraz üzerinde olabilir."
             )
         else:
             bits.append(
@@ -682,9 +738,9 @@ def compare_verdict(left: dict, right: dict) -> list[str]:
         cheap_a = ga <= GAP_CHEAP
         cheap_b = gb <= GAP_CHEAP
         if cheap_a and not cheap_b:
-            lines.append(f"Piyasa {a_name} için daha cömert bir boşluk bırakmış; etiket üretime göre daha ucuz.")
+            lines.append(f"Piyasa {a_name} için daha geniş bir boşluk bırakmış; etiket üretime göre daha ucuz.")
         elif cheap_b and not cheap_a:
-            lines.append(f"Piyasa {b_name} için daha cömert bir boşluk bırakmış; etiket üretime göre daha ucuz.")
+            lines.append(f"Piyasa {b_name} için daha geniş bir boşluk bırakmış; etiket üretime göre daha ucuz.")
         elif ga >= GAP_RICH and gb < GAP_RICH * 0.5:
             lines.append(f"{a_name} etiketinde prim daha belirgin; büyük ligde bu sık görülür.")
         elif gb >= GAP_RICH and ga < GAP_RICH * 0.5:

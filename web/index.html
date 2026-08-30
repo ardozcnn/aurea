@@ -7,23 +7,23 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&family=Outfit:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/styles.css?v=34" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&family=Outfit:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css?v=39" />
 </head>
 <body>
   <header class="nav">
     <a class="logo" href="/"><i></i>Aurea</a>
     <form class="nav-search" id="global-search" autocomplete="off">
-      <input id="gq" type="search" placeholder="Oyuncu veya Transfermarkt adresi" />
+      <input id="gq" type="search" placeholder="Oyuncu, kulüp veya Transfermarkt adresi" />
     </form>
     <nav class="links">
+      <a href="/" data-nav="" class="nav-home">Ana menü</a>
       <a href="/kulupler" data-nav="kulupler">Kulüpler</a>
       <a href="/scout" data-nav="scout">Scout</a>
       <a href="/piyasa" data-nav="piyasa">Oyuncular</a>
       <a href="/ligler" data-nav="ligler">Ligler</a>
       <i class="nav-rule" aria-hidden="true"></i>
       <a href="/fantezi" class="nav-fx" data-nav="fantezi">TFF Fantezi Lig</a>
-      <a href="/" data-nav="" class="nav-home">Ana menü</a>
     </nav>
   </header>
   <div id="drop" class="drop hidden"></div>
@@ -34,7 +34,7 @@
     <a href="/ara" data-nav="ara">Ara</a>
     <a href="/fantezi" data-nav="fantezi">Fantezi</a>
   </nav>
-  <a class="method-fab no-print" href="/yontem" title="Yöntem">?</a>
+  <a class="method-fab no-print" href="/yontem" title="Yöntem" aria-label="Yöntem">?</a>
   <div id="boot" class="boot hidden" aria-hidden="true">
     <div class="boot-card">
       <p class="kicker">Aurea</p>
@@ -45,6 +45,6 @@
       <button id="boot-btn" class="btn" type="button">Başlat</button>
     </div>
   </div>
-  <script src="/static/app.js?v=34"></script>
+  <script src="/static/app.js?v=39"></script>
 </body>
 </html>

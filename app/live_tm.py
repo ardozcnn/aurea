@@ -254,6 +254,48 @@ def search_players(query: str, page: int = 1) -> dict:
     return payload
 
 
+_YOUTH_CLUB = re.compile(r"u1[789]|u2[01]|jugend|youth|amateurs|\bii\b|reserve")
+
+
+def resolve_club_id(name: str) -> int | None:
+    from app.slugs import club_query_hit, fold_tr
+
+    q = str(name or "").strip()
+    if len(q) < 2:
+        return None
+    key = f"clubid:{fold_tr(q)}:v1"
+    cached = _get_cache(key)
+    if isinstance(cached, int) and cached > 0:
+        return cached
+    try:
+        html = _get_html(f"/schnellsuche/ergebnis/schnellsuche?query={quote(q)}")
+    except Exception:
+        return None
+    soup = BeautifulSoup(html, "lxml")
+    best: int | None = None
+    best_rank = 9
+    for link in soup.select("a[href*='/startseite/verein/']"):
+        title = (link.get("title") or link.get_text(" ", strip=True) or "").strip()
+        folded = fold_tr(title)
+        if _YOUTH_CLUB.search(folded):
+            continue
+        found = re.search(r"/verein/(\d+)", link.get("href") or "")
+        if not found:
+            continue
+        rank = club_query_hit(title, q)
+        if rank is None:
+            continue
+        cid = int(found.group(1))
+        if rank < best_rank:
+            best_rank = rank
+            best = cid
+        if rank == 0:
+            break
+    if best:
+        _set_cache(key, best, ttl=14 * 24 * 3600)
+    return best
+
+
 def _info_map(soup: BeautifulSoup) -> dict[str, str]:
     mapping: dict[str, str] = {}
     cells = soup.select(".info-table .info-table__content")

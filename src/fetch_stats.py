@@ -63,6 +63,7 @@ _SOFA_HEADERS = {
     "Accept-Language": "en-US,en;q=0.9,tr;q=0.8",
     "Origin": "https://www.sofascore.com",
     "Referer": "https://www.sofascore.com/",
+    "Connection": "close",
 }
 
 
@@ -135,6 +136,16 @@ def _sofa_fetch(url: str, delay: float) -> Any:
                 )
             except Exception as exc:
                 last_error = exc
+                text = str(exc).lower()
+                global _session, _session_profile
+                if isinstance(exc, (PermissionError, ConnectionError, TimeoutError, OSError)) or (
+                    "connection aborted" in text
+                    or "permission denied" in text
+                    or "winerror 13" in text
+                    or "connection reset" in text
+                ):
+                    _session = None
+                    _session_profile = ""
                 continue
             if resp.status_code == 404:
                 raise SofaNotFound(url)
