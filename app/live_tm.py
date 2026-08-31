@@ -1,4 +1,4 @@
-"""Canlı Transfermarkt: arama, profil, piyasa eğrisi ve sakatlık."""
+"""Canlı Transfermarkt: arama, profil, piyasa eğrisi ve kariyer."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from app.config import CACHE_SQLITE, DATA_DIR, TM_WEB, USER_AGENT
+from app.money import format_eur
 
 _LOCK = threading.Lock()
 _TTL = 90
@@ -83,6 +84,23 @@ def _get_html(path: str) -> str:
         response = client.get(url)
         response.raise_for_status()
         return response.text
+
+
+def _get_json(path: str, referer: str | None = None) -> dict:
+    url = path if path.startswith("http") else f"{TM_WEB}{path}"
+    headers = dict(_HEADERS)
+    headers["Accept"] = "application/json"
+    if referer:
+        headers["Referer"] = referer if referer.startswith("http") else f"{TM_WEB}{referer}"
+    try:
+        with _client() as client:
+            response = client.get(url, headers=headers)
+            if response.status_code >= 400:
+                return {}
+            payload = response.json()
+    except (httpx.HTTPError, json.JSONDecodeError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def parse_euro(text: str | None) -> int | None:
@@ -254,7 +272,18 @@ def search_players(query: str, page: int = 1) -> dict:
     return payload
 
 
-_YOUTH_CLUB = re.compile(r"u1[789]|u2[01]|jugend|youth|amateurs|\bii\b|reserve")
+_YOUTH_CLUB = re.compile(
+    r"yth\.?|u1[4-9]|u2[01]|jugend|youth|amateurs?|\bii\b|reserve|akademi|altyap",
+    re.I,
+)
+_KIND_TR = {
+    "bedel": "Satın alma",
+    "kiralik": "Kiralık",
+    "bedelsiz": "Bedelsiz",
+    "belirsiz": "Bedel açıklanmadı",
+    "donus": "Kiralık dönüş",
+    "baslangic": "İlk kayıt",
+}
 
 
 def resolve_club_id(name: str) -> int | None:
@@ -554,9 +583,340 @@ def _scrape_value_curve(player_id: str) -> list[dict]:
     return rows[-24:]
 
 
+def _iso_day(value: Any):
+    raw = str(value or "").strip()[:10]
+    if len(raw) < 10:
+        return None
+    try:
+        return datetime.strptime(raw, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _transfer_kind(text: str) -> tuple[str, int | None]:
+    raw = (text or "").replace("\xa0", " ").strip()
+    low = raw.lower()
+    if not raw or raw in {"-", "–"}:
+        return "belirsiz", None
+    if "end of loan" in low or "leihende" in low or "kiralık sonu" in low:
+        return "donus", None
+    if "loan fee" in low or "leihgebühr" in low:
+        return "kiralik", parse_euro(raw)
+    if "loan" in low or "leihe" in low or "kiralık" in low:
+        return "kiralik", parse_euro(raw)
+    if any(w in low for w in ("free", "ablösefrei", "bedelsiz", "ücretsiz")):
+        return "bedelsiz", 0
+    fee = parse_euro(raw)
+    if fee is None:
+        return "belirsiz", None
+    return "bedel", fee
+
+
+def _club_side(pack: Any) -> dict[str, Any]:
+    if not isinstance(pack, dict):
+        pack = {}
+    href = str(pack.get("href") or "")
+    found = re.search(r"/verein/(\d+)", href)
+    name = str(pack.get("clubName") or "").strip()
+    return {
+        "name": name,
+        "id": int(found.group(1)) if found else None,
+        "crest": str(pack.get("clubEmblem-1x") or pack.get("clubEmblem-2x") or ""),
+    }
+
+
+def _club_key(side: dict[str, Any]) -> str:
+    if side.get("id"):
+        return f"id:{side['id']}"
+    return "n:" + re.sub(r"\s+", " ", str(side.get("name") or "").strip().lower())
+
+
+def _youth_club(name: str) -> bool:
+    return bool(name and _YOUTH_CLUB.search(name))
+
+
+def _duration_label(days: int | None) -> str:
+    if days is None:
+        return ""
+    if days < 20:
+        return f"{max(days, 1)} gün"
+    years, rem = divmod(days, 365)
+    months = rem // 30
+    if years and months:
+        return f"{years} yıl {months} ay"
+    if years:
+        return f"{years} yıl"
+    if months:
+        return f"{months} ay"
+    return f"{days} gün"
+
+
+def _fee_label(kind: str, fee: int | None) -> str:
+    if kind == "bedelsiz":
+        return "Bedelsiz"
+    if kind == "kiralik" and not fee:
+        return "Kiralık"
+    if kind in {"donus", "baslangic"}:
+        return "—"
+    if kind == "belirsiz" or fee is None:
+        return "Açıklanmadı"
+    return format_eur(fee)
+
+
+def _total_pack(kind: str, fee: int | None) -> tuple[int | None, str]:
+    if kind in {"donus", "baslangic"}:
+        return None, "—"
+    if kind == "bedelsiz":
+        return 0, "Bedelsiz"
+    if fee is None:
+        return None, "Açıklanmadı"
+    return fee, format_eur(fee)
+
+
+def _finish_spell(spell: dict[str, Any], today) -> dict[str, Any]:
+    from app.slugs import club_display, club_path, is_free_agent
+
+    start = _iso_day(spell.get("arrived"))
+    end = _iso_day(spell.get("departed")) if spell.get("departed") else today
+    days = None
+    if start is not None and end is not None:
+        days = max((end - start).days, 0)
+    kind = str(spell.get("kind") or "belirsiz")
+    fee = spell.get("fee")
+    total, total_label = _total_pack(kind, fee if isinstance(fee, int) else None)
+    club_name = club_display(str(spell.get("club") or ""))
+    from_name = club_display(str(spell.get("from_club") or ""))
+    youth = bool(spell.get("youth"))
+    href = None
+    cid = spell.get("club_id")
+    if cid and not youth and not is_free_agent(club_name):
+        href = club_path(cid, club_name)
+    mv = spell.get("market_value")
+    spell.update(
+        {
+            "club": club_name,
+            "from_club": from_name,
+            "days": days,
+            "duration_label": _duration_label(days),
+            "kind_label": _KIND_TR.get(kind, "Bedel açıklanmadı"),
+            "fee_label": _fee_label(kind, fee if isinstance(fee, int) else None),
+            "market_label": format_eur(mv) if mv else "",
+            "wage_label": "Açıklanmadı",
+            "wage_total_label": "Açıklanmadı",
+            "total": total,
+            "total_label": total_label,
+            "total_scope": "bonservis",
+            "href": href,
+        }
+    )
+    return spell
+
+
+def _club_wage_hit(spell_club: str, wage_club: str) -> bool:
+    from app.slugs import club_names_match, club_query_hit
+
+    if club_names_match(spell_club, wage_club):
+        return True
+    left = club_query_hit(spell_club, wage_club)
+    right = club_query_hit(wage_club, spell_club)
+    return (left is not None and left <= 1) or (right is not None and right <= 1)
+
+
+def _attach_wages(career: dict[str, Any], name: str) -> None:
+    from app.wages import fetch_player_wages
+
+    pack = fetch_player_wages(name) or {}
+    rows = [row for row in (pack.get("rows") or []) if isinstance(row, dict) and row.get("annual_eur")]
+    if not rows:
+        return
+    bonus = pack.get("bonus_annual_eur")
+    today = datetime.now(timezone.utc).date()
+    for section in ("current", "former"):
+        for spell in career.get(section) or []:
+            if spell.get("kind") in {"donus", "baslangic"}:
+                continue
+            hits = [row for row in rows if _club_wage_hit(str(spell.get("club") or ""), str(row.get("club") or ""))]
+            if not hits:
+                continue
+            start = _iso_day(spell.get("arrived"))
+            end = _iso_day(spell.get("departed")) if spell.get("departed") else today
+            if start is None or end is None or end < start:
+                continue
+            hits = sorted(hits, key=lambda row: int(row.get("year") or 0))
+            bill = 0
+            used_rows: list[dict[str, Any]] = []
+            for i, row in enumerate(hits):
+                year = int(row.get("year") or 0)
+                if year < 1990:
+                    continue
+                period_start = datetime(year, 7, 1).date()
+                if i + 1 < len(hits):
+                    nxt = int(hits[i + 1].get("year") or year + 1)
+                    period_end = datetime(nxt, 7, 1).date()
+                else:
+                    period_end = datetime(year + 12, 7, 1).date()
+                left = max(start, period_start)
+                right = min(end, period_end)
+                overlap = (right - left).days
+                if overlap <= 0:
+                    continue
+                annual = int(row.get("annual_eur") or 0)
+                bill += int(round(annual * overlap / 365.25))
+                used_rows.append(row)
+            if not used_rows:
+                used_rows = [hits[-1]]
+                days = int(spell.get("days") or 0)
+                bill = int(round(int(used_rows[0].get("annual_eur") or 0) * max(days, 1) / 365.25))
+            if not bill:
+                continue
+            annuals = [int(row.get("annual_eur") or 0) for row in used_rows if row.get("annual_eur")]
+            last = used_rows[-1]
+            weekly = last.get("weekly_eur")
+            spell["wage_annual"] = last.get("annual_eur")
+            spell["wage_weekly"] = weekly
+            if len(set(annuals)) > 1:
+                spell["wage_label"] = f"{format_eur(min(annuals))}–{format_eur(max(annuals))} / yıl"
+            elif annuals:
+                spell["wage_label"] = f"{format_eur(annuals[0])} / yıl"
+            else:
+                spell["wage_label"] = "Açıklanmadı"
+            spell["wage_weekly_label"] = f"{format_eur(weekly)} / hafta" if weekly else ""
+            spell["wage_total"] = bill
+            spell["wage_total_label"] = format_eur(bill)
+            if bonus and section == "current" and spell.get("ongoing"):
+                spell["wage_bonus"] = int(bonus)
+                spell["wage_bonus_label"] = format_eur(bonus)
+            fee = spell.get("fee")
+            kind = str(spell.get("kind") or "")
+            fee_part = None
+            if kind == "bedelsiz":
+                fee_part = 0
+            elif isinstance(fee, int):
+                fee_part = fee
+            if fee_part is None:
+                spell["total"] = bill
+                spell["total_label"] = format_eur(bill)
+                spell["total_scope"] = "maas"
+            else:
+                spell["total"] = fee_part + bill
+                spell["total_label"] = format_eur(fee_part + bill)
+                spell["total_scope"] = "tam"
+
+
+def _player_career(player_id: str) -> dict:
+    empty: dict[str, Any] = {
+        "current": [],
+        "former": [],
+        "youth": [],
+        "fee_sum": None,
+        "fee_sum_label": "",
+    }
+    data = _get_json(
+        f"/ceapi/transferHistory/list/{player_id}",
+        referer=f"/dummy/transfers/spieler/{player_id}",
+    )
+    raw = data.get("transfers")
+    if not isinstance(raw, list) or not raw:
+        return empty
+    today = datetime.now(timezone.utc).date()
+    spells: list[dict[str, Any]] = []
+    open_map: dict[str, dict[str, Any]] = {}
+    for item in reversed(raw):
+        if not isinstance(item, dict):
+            continue
+        arrived = str(item.get("dateUnformatted") or "")[:10] or None
+        src = _club_side(item.get("from"))
+        dst = _club_side(item.get("to"))
+        kind, fee = _transfer_kind(str(item.get("fee") or ""))
+        src_key = _club_key(src)
+        dst_key = _club_key(dst)
+        if src.get("name") and src_key in open_map:
+            prev = open_map.pop(src_key)
+            prev["departed"] = arrived
+            prev["ongoing"] = False
+        if not dst.get("name") and not dst.get("id"):
+            continue
+        if dst_key in open_map:
+            stuck = open_map.pop(dst_key)
+            stuck["departed"] = arrived
+            stuck["ongoing"] = False
+        youth = _youth_club(dst.get("name") or "")
+        spell = {
+            "club": dst.get("name") or "",
+            "club_id": dst.get("id"),
+            "crest": dst.get("crest") or "",
+            "from_club": src.get("name") or "",
+            "from_club_id": src.get("id"),
+            "arrived": arrived,
+            "departed": None,
+            "ongoing": True,
+            "season": item.get("season"),
+            "kind": kind,
+            "fee": fee,
+            "market_value": parse_euro(str(item.get("marketValue") or "")),
+            "youth": youth,
+            "loan": kind == "kiralik",
+        }
+        spells.append(spell)
+        open_map[dst_key] = spell
+    if spells:
+        origin_name = str(spells[0].get("from_club") or "").strip()
+        origin_id = spells[0].get("from_club_id")
+        seen = any(
+            (origin_id and s.get("club_id") == origin_id)
+            or (origin_name and str(s.get("club") or "") == origin_name)
+            for s in spells
+        )
+        if origin_name and not seen:
+            spells.insert(
+                0,
+                {
+                    "club": origin_name,
+                    "club_id": origin_id,
+                    "crest": "",
+                    "from_club": "",
+                    "from_club_id": None,
+                    "arrived": None,
+                    "departed": spells[0].get("arrived"),
+                    "ongoing": False,
+                    "season": spells[0].get("season"),
+                    "kind": "baslangic",
+                    "fee": None,
+                    "market_value": None,
+                    "youth": _youth_club(origin_name),
+                    "loan": False,
+                },
+            )
+    current: list[dict[str, Any]] = []
+    former: list[dict[str, Any]] = []
+    youth_rows: list[dict[str, Any]] = []
+    for spell in reversed(spells):
+        _finish_spell(spell, today)
+        if spell.get("youth") and not spell.get("ongoing"):
+            youth_rows.append(spell)
+        elif spell.get("ongoing"):
+            current.append(spell)
+        else:
+            former.append(spell)
+    fee_sum = data.get("feeSum")
+    parsed_sum = None
+    try:
+        if fee_sum is not None and fee_sum == fee_sum:
+            parsed_sum = int(fee_sum)
+    except (TypeError, ValueError):
+        parsed_sum = parse_euro(str(data.get("formattedFeeSum") or ""))
+    return {
+        "current": current,
+        "former": former,
+        "youth": youth_rows,
+        "fee_sum": parsed_sum,
+        "fee_sum_label": format_eur(parsed_sum) if parsed_sum else "",
+    }
+
+
 def player_bundle(player_id: int | str, fresh: bool = True) -> dict:
     pid = str(player_id)
-    key = f"bundle:{pid}"
+    key = f"bundle:v4:{pid}"
     if not fresh:
         cached = _get_cache(key)
         if cached is not None:
@@ -566,20 +926,35 @@ def player_bundle(player_id: int | str, fresh: bool = True) -> dict:
     stats: list = []
     market_value = None
     history: list = []
+    career: dict = {
+        "current": [],
+        "former": [],
+        "youth": [],
+        "fee_sum": None,
+        "fee_sum_label": "",
+    }
     try:
         from concurrent.futures import ThreadPoolExecutor
 
-        with ThreadPoolExecutor(max_workers=3) as pool:
+        with ThreadPoolExecutor(max_workers=4) as pool:
             fut_profile = pool.submit(_scrape_profile, pid)
             fut_market = pool.submit(_market_history, pid)
             fut_stats = pool.submit(_scrape_stats, pid)
+            fut_career = pool.submit(_player_career, pid)
             profile = fut_profile.result() or {}
             market_value, history = fut_market.result()
             stats = fut_stats.result() or []
+            career = fut_career.result() or career
         if market_value is None:
             market_value = profile.get("marketValue")
         else:
             profile["marketValue"] = market_value
+        player_name = str(profile.get("name") or profile.get("fullName") or "").strip()
+        if player_name:
+            try:
+                _attach_wages(career, player_name)
+            except (httpx.HTTPError, ValueError, TypeError):
+                pass
     except httpx.HTTPError:
         profile = profile or {}
     bundle = {
@@ -590,10 +965,11 @@ def player_bundle(player_id: int | str, fresh: bool = True) -> dict:
         "market_history": history,
         "ranking": {},
         "injuries": injuries,
+        "career": career,
         "transfers": [],
         "source": TM_WEB,
     }
-    if profile or history:
+    if profile or history or (career.get("current") or career.get("former") or career.get("youth")):
         _set_cache(key, bundle)
     return bundle
 

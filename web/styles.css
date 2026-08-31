@@ -1174,6 +1174,25 @@ h1 { font-size: clamp(32px, 4vw, 48px); line-height: 1.12; font-weight: 500; let
   line-height: 1.65;
 }
 .tenure-body a { color: var(--gold); text-decoration: none; }
+.career-lede { padding: 8px 22px 14px; margin: 0; }
+.group .tenure-list {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.group .tenure-row { padding: 0; }
+.career-crest {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  flex: 0 0 28px;
+  border-radius: 4px;
+  background: transparent;
+}
+.career-crest.empty { background: var(--fill); }
+.career-row .tenure-head {
+  grid-template-columns: 32px minmax(0, 1fr) 140px;
+}
 .deal-date {
   display: inline-block;
   margin-left: 10px;
@@ -1239,6 +1258,9 @@ h1 { font-size: clamp(32px, 4vw, 48px); line-height: 1.12; font-weight: 500; let
     gap: 10px;
     padding: 12px 14px;
   }
+  .career-row .tenure-head {
+    grid-template-columns: 32px minmax(0, 1fr) 120px;
+  }
   .pitch { min-height: 0; padding: 18px 8px 22px; }
   .shirt { width: 108px; }
 }
@@ -1286,6 +1308,10 @@ h1 { font-size: clamp(32px, 4vw, 48px); line-height: 1.12; font-weight: 500; let
   .tenure-head {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-rows: auto auto;
+  }
+  .career-row .tenure-head {
+    grid-template-columns: 28px minmax(0, 1fr) auto;
+    grid-template-rows: auto;
   }
   .tenure-head .pill { grid-column: 1 / -1; justify-self: start; }
   .pitch-row { gap: 8px; }

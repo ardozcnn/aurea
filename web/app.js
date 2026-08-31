@@ -400,6 +400,116 @@ function bindTenure(root, rows) {
   });
 }
 
+function careerCopy(s) {
+  const club = clubName(s && s.club);
+  const arrived = fmtDate(s && s.arrived);
+  const from = s && s.from_club ? clubName(s.from_club) : "";
+  const bits = [];
+  if (s && s.kind === "baslangic") {
+    bits.push(`${club} kariyer kaydındaki ilk kulüp.`);
+    if (s.departed) bits.push(`Kayıt, ${fmtDate(s.departed)} tarihindeki ilk transferle kapanır.`);
+  } else if (arrived) {
+    let how = "geldi";
+    if (s.kind === "kiralik") how = "kiralık olarak geldi";
+    else if (s.kind === "bedelsiz") how = "bedelsiz geldi";
+    else if (s.kind === "donus") how = "kiralık süresinin sonunda döndü";
+    else if (s.kind === "bedel") how = "satın alma ile geldi";
+    const via = from && from !== "Kulüpsüz" ? ` ${from} kulübünden` : "";
+    bits.push(`${club} kadrosuna ${arrived} tarihinde${via} ${how}.`);
+  }
+  if (s && s.kind !== "baslangic" && s.ongoing && s.duration_label) bits.push(`Kulüpteki süre ${s.duration_label}; dönem devam ediyor.`);
+  else if (s && s.kind !== "baslangic" && s.duration_label && s.departed) bits.push(`Kulüpteki süre ${s.duration_label}; ayrılış ${fmtDate(s.departed)}.`);
+  else if (s && s.kind !== "baslangic" && s.duration_label) bits.push(`Kulüpteki süre ${s.duration_label}.`);
+  if (s && s.market_label) bits.push(`Transfer günündeki Transfermarkt etiketi ${s.market_label}.`);
+  if (s && s.wage_annual) {
+    bits.push(`Açık rapordaki taban maaş ${s.wage_label}${s.wage_weekly_label ? ` (${s.wage_weekly_label})` : ""}.`);
+    if (s.wage_total_label) bits.push(`Kulüpteki süreye göre maaş yükü ${s.wage_total_label}.`);
+    if (s.wage_bonus_label) bits.push(`Aynı raporda yıllık bonus ${s.wage_bonus_label}; toplam maliyete eklenmez.`);
+    if (s.total_scope === "tam") bits.push("Toplam maliyet, açıklanan bonservis ile bu maaş yükünün toplamıdır.");
+    else bits.push("Bonservis bu dönem için yok veya açıklanmadı; toplam yalnızca maaş yüküdür.");
+  } else {
+    bits.push("Maaş bu dönem için açık raporda yok. Toplam maliyet yalnızca açıklanan bonservisi kapsar.");
+  }
+  return bits;
+}
+
+function careerWindow(s) {
+  const a = fmtDate(s && s.arrived);
+  const b = s && s.ongoing ? "devam ediyor" : fmtDate(s && s.departed);
+  if (!a && b) return `${b} öncesi`;
+  if (a && b) return `${a} — ${b}`;
+  return a || b || "";
+}
+
+function careerRow(s) {
+  const meta = [s.kind_label, careerWindow(s), s.duration_label].filter(Boolean).join(" · ");
+  const crest = s.crest
+    ? `<img class="career-crest" src="${esc(s.crest)}" alt="" />`
+    : `<span class="career-crest empty" aria-hidden="true"></span>`;
+  return `<div class="tenure-row career-row">
+    <button type="button" class="tenure-head">
+      ${crest}
+      <div class="who-col"><div class="name">${esc(clubName(s.club))}</div><div class="meta">${esc(meta || "—")}</div></div>
+      <div class="num">${esc(s.fee_label || "—")}</div>
+    </button>
+    <div class="tenure-body" hidden></div>
+  </div>`;
+}
+
+function careerBlock(career) {
+  if (!career) return "";
+  const blocks = [
+    ["Güncel kulüp", career.current || []],
+    ["Eski kulüpler", career.former || []],
+    ["Altyapı", career.youth || []],
+  ].filter((pair) => pair[1].length);
+  if (!blocks.length) return "";
+  const lede = career.fee_sum_label
+    ? `Açıklanan kariyer bonservisi ${career.fee_sum_label}. Kulübe basın; bonservis, süre ve toplam maliyet açılır.`
+    : "Kulübe basın; bonservis, süre ve toplam maliyet açılır.";
+  return `<div class="career-wrap print-hide">${blocks.map(([title, rows], i) =>
+    `<div class="group"><h3>${esc(title)}</h3>${i === 0 ? `<p class="sub career-lede">${esc(lede)}</p>` : ""}<div class="tenure-list career-list">${rows.map(careerRow).join("")}</div></div>`
+  ).join("")}</div>`;
+}
+
+function toggleCareer(row, s) {
+  const body = row.querySelector(".tenure-body");
+  if (!body) return;
+  if (row.classList.contains("open")) {
+    row.classList.remove("open");
+    body.hidden = true;
+    return;
+  }
+  row.classList.add("open");
+  body.hidden = false;
+  if (body.dataset.ready === "1") return;
+  const dur = [s.duration_label || "", s.ongoing ? "devam ediyor" : ""].filter(Boolean).join(" · ");
+  const money = `<div class="deal-money">
+      <div><span>Bonservis</span><b>${esc(s.fee_label || "—")}</b></div>
+      <div><span>Maaş</span><b>${esc(s.wage_label || "Açıklanmadı")}</b></div>
+      <div><span>Süre</span><b>${esc(dur || "—")}</b></div>
+      <div><span>Toplam maliyet</span><b>${esc(s.total_label || "—")}</b></div>
+    </div>`;
+  const paras = careerCopy(s || {}).map((t) => `<p>${esc(t)}</p>`).join("");
+  const link = s && s.href ? `<p><a href="${esc(s.href)}">Kulüp sayfası</a></p>` : "";
+  body.innerHTML = `${money}${paras}${link}`;
+  body.dataset.ready = "1";
+}
+
+function bindCareer(root, career) {
+  const all = [...(career && career.current || []), ...(career && career.former || []), ...(career && career.youth || [])];
+  root.querySelectorAll(".career-row").forEach((row, i) => {
+    row.querySelector("img.career-crest")?.addEventListener("error", (e) => {
+      const img = e.target;
+      img.classList.add("empty");
+      img.removeAttribute("src");
+    });
+    row.querySelector(".tenure-head")?.addEventListener("click", () => {
+      toggleCareer(row, all[i] || {});
+    });
+  });
+}
+
 function listHead() {
   return `<div class="list-head"><span>Oyuncu</span><span>Takım</span><span class="h-league">Lig</span><span>Aurea</span><span></span></div>`;
 }
@@ -1182,6 +1292,7 @@ async function renderPlayer(id, gen) {
     <div class="metrics production-metrics">
       ${production}
     </div>
+    ${careerBlock(live.career)}
     ${((live.market_history || []).filter((h) => moneyAmount(h.marketValue) > 0).length >= 2) ? `<div class="group print-hide">
       <h3>Etiket eğrisi</h3>
       <article>${sparkline(live.market_history)}${histTable(live.market_history)}</article>
@@ -1204,6 +1315,7 @@ async function renderPlayer(id, gen) {
   `;
   document.getElementById("pdf-player")?.addEventListener("click", () => window.print());
   document.getElementById("share-player")?.addEventListener("click", () => sharePlayerCard(p, ident, r));
+  bindCareer(view, live.career || {});
 }
 
 function wrapCanvas(ctx, text, maxWidth, maxLines) {

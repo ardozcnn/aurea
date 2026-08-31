@@ -905,7 +905,7 @@ def player_detail(player_id: int, live: bool = True) -> dict:
             "injuries": (bundle.get("injuries") or [])[:8],
             "injury_days": injury_days,
             "market_history": (bundle.get("market_history") or [])[-24:],
-            "transfers": (bundle.get("transfers") or [])[:8],
+            "career": bundle.get("career") or {},
             "profile": {
                 "fullName": (bundle.get("profile") or {}).get("fullName"),
                 "shirtNumber": (bundle.get("profile") or {}).get("shirtNumber"),
