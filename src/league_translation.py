@@ -142,7 +142,7 @@ def _identity_mix_weight(
     if baseline <= 0:
         return 0.0
     excess = source / baseline
-    return max(0.0, min(0.70, (excess - 1.25) / 2.5))
+    return max(0.0, min(0.38, (excess - 1.25) / 2.5))
 
 
 def _metric_model(

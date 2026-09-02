@@ -19,6 +19,8 @@ from app.config import CACHE_SQLITE, DATA_DIR, TM_WEB, USER_AGENT
 from app.money import format_eur
 
 _LOCK = threading.Lock()
+_FLIGHT_LOCK = threading.Lock()
+_FLIGHT: dict[str, dict[str, Any]] = {}
 _TTL = 90
 _HEADERS = {
     "User-Agent": USER_AGENT,
@@ -57,6 +59,56 @@ def _get_cache(key: str) -> Any | None:
             con.close()
 
 
+def _empty_career() -> dict[str, Any]:
+    return {
+        "current": [],
+        "former": [],
+        "youth": [],
+        "fee_sum": None,
+        "fee_sum_label": "",
+    }
+
+
+def _wait_fut(fut, fallback, timeout: float = 32.0):
+    from concurrent.futures import TimeoutError as FuturesTimeout
+
+    if fut is None:
+        return fallback
+    try:
+        result = fut.result(timeout=timeout)
+        return fallback if result is None else result
+    except (httpx.HTTPError, TimeoutError, FuturesTimeout, ValueError, TypeError, json.JSONDecodeError):
+        return fallback
+
+
+def _bundle_has_body(bundle: dict[str, Any]) -> bool:
+    if not isinstance(bundle, dict):
+        return False
+    profile = bundle.get("profile") or {}
+    if profile.get("name") or profile.get("fullName"):
+        return True
+    career = bundle.get("career") or {}
+    return bool(
+        career.get("current")
+        or career.get("former")
+        or career.get("youth")
+        or bundle.get("stats")
+        or bundle.get("market_history")
+    )
+
+
+def _bundle_ready(bundle: dict[str, Any]) -> bool:
+    return _bundle_has_body(bundle) and not bundle.get("partial")
+
+
+def _career_has_wage(career: dict[str, Any]) -> bool:
+    for section in ("current", "former"):
+        for spell in career.get(section) or []:
+            if spell.get("wage_annual"):
+                return True
+    return False
+
+
 def _set_cache(key: str, payload: Any, ttl: float | None = None) -> None:
     with _LOCK:
         con = _db()
@@ -92,15 +144,23 @@ def _get_json(path: str, referer: str | None = None) -> dict:
     headers["Accept"] = "application/json"
     if referer:
         headers["Referer"] = referer if referer.startswith("http") else f"{TM_WEB}{referer}"
-    try:
-        with _client() as client:
-            response = client.get(url, headers=headers)
-            if response.status_code >= 400:
-                return {}
-            payload = response.json()
-    except (httpx.HTTPError, json.JSONDecodeError, ValueError):
-        return {}
-    return payload if isinstance(payload, dict) else {}
+    for attempt in range(2):
+        try:
+            with _client() as client:
+                response = client.get(url, headers=headers)
+                if response.status_code >= 400:
+                    if attempt == 0:
+                        time.sleep(0.45)
+                        continue
+                    return {}
+                payload = response.json()
+        except (httpx.HTTPError, json.JSONDecodeError, ValueError):
+            if attempt == 0:
+                time.sleep(0.45)
+                continue
+            return {}
+        return payload if isinstance(payload, dict) else {}
+    return {}
 
 
 def parse_euro(text: str | None) -> int | None:
@@ -335,15 +395,79 @@ def _info_map(soup: BeautifulSoup) -> dict[str, str]:
     return mapping
 
 
+def _digits_shirt(text: str) -> str | None:
+    found = re.search(r"#\s*(\d{1,3})\b", text or "")
+    if found:
+        return found.group(1)
+    digits = re.sub(r"\D", "", text or "")
+    if 1 <= len(digits) <= 3:
+        n = int(digits)
+        if 1 <= n <= 99:
+            return str(n)
+    return None
+
+
+def _hash_shirt(text: str) -> str | None:
+    found = re.search(r"#\s*(\d{1,2})\b", text or "")
+    if not found:
+        return None
+    n = int(found.group(1))
+    if 1 <= n <= 99:
+        return str(n)
+    return None
+
+
+def _read_shirt_number(soup: BeautifulSoup, info: dict[str, str], raw_name: str) -> str | None:
+    for sel in (
+        ".data-header__shirt-number",
+        ".tm-player-meta__number",
+        "span[class*='shirt-number']",
+        '[itemprop="jerseyNumber"]',
+    ):
+        el = soup.select_one(sel)
+        if el is None:
+            continue
+        text = el.get_text(" ", strip=True) or el.get("content") or ""
+        got = _digits_shirt(text) or _hash_shirt(text)
+        if got:
+            return got
+    headline = soup.select_one(".data-header__headline-wrapper")
+    if headline is not None:
+        got = _hash_shirt(headline.get_text(" ", strip=True))
+        if got:
+            return got
+    for key in (
+        "Shirt number",
+        "Player shirt number",
+        "Forma numarası",
+        "Forma no",
+        "Rückennummer",
+        "Number",
+    ):
+        got = _digits_shirt(str(info.get(key) or "")) or _hash_shirt(str(info.get(key) or ""))
+        if got:
+            return got
+    got = _hash_shirt(raw_name)
+    if got:
+        return got
+    for script in soup.select('script[type="application/ld+json"]'):
+        blob = script.get_text() or ""
+        found = re.search(r'"jersey(?:Number|No)"\s*:\s*"?(\d{1,3})"?', blob, re.I)
+        if found:
+            n = int(found.group(1))
+            if 1 <= n <= 99:
+                return str(n)
+    return None
+
+
 def _scrape_profile(player_id: str) -> dict:
     html = _get_html(f"/dummy/profil/spieler/{player_id}")
     soup = BeautifulSoup(html, "lxml")
     info = _info_map(soup)
     name_el = soup.select_one("h1.data-header__headline-wrapper")
     raw_name = name_el.get_text(" ", strip=True) if name_el else ""
-    shirt_match = re.search(r"#(\d+)", raw_name)
-    shirt = shirt_match.group(1) if shirt_match else None
-    name = re.sub(r"^#\d+\s*", "", raw_name)
+    shirt = _read_shirt_number(soup, info, raw_name)
+    name = re.sub(r"^#\s*\d+\s*", "", raw_name)
     img = soup.select_one("div.data-header__profile-container img")
     mv_el = soup.select_one("a.data-header__market-value-wrapper, div.data-header__market-value-wrapper")
     market_value = parse_euro(mv_el.get_text(" ", strip=True) if mv_el else None)
@@ -385,9 +509,6 @@ def _scrape_profile(player_id: str) -> dict:
     contract = info.get("Contract expires") or info.get("Sözleşme")
     league_el = soup.select_one("a.data-header__league-link") or soup.select_one(".data-header__league")
     league_name = league_el.get_text(" ", strip=True) if league_el else None
-    shirt_el = soup.select_one(".data-header__shirt-number")
-    if shirt_el:
-        shirt = re.sub(r"\D", "", shirt_el.get_text(" ", strip=True)) or shirt
     og = soup.select_one('meta[property="og:image"]')
     image_url = (og.get("content") if og else None) or (img.get("src") if img else None)
     return {
@@ -584,13 +705,31 @@ def _scrape_value_curve(player_id: str) -> list[dict]:
 
 
 def _iso_day(value: Any):
-    raw = str(value or "").strip()[:10]
-    if len(raw) < 10:
+    return _parse_tm_date(value)
+
+
+def _parse_tm_date(value: Any):
+    raw = str(value or "").replace("\xa0", " ").strip()
+    if not raw or raw in {"-", "–", "—", "None"}:
         return None
-    try:
-        return datetime.strptime(raw, "%Y-%m-%d").date()
-    except ValueError:
-        return None
+    iso = raw[:10]
+    if len(iso) == 10 and iso[4] == "-" and iso[7] == "-":
+        try:
+            return datetime.strptime(iso, "%Y-%m-%d").date()
+        except ValueError:
+            pass
+    found = re.search(r"(\d{1,2})[./](\d{1,2})[./](20\d{2})", raw)
+    if found:
+        try:
+            return datetime(int(found.group(3)), int(found.group(2)), int(found.group(1))).date()
+        except ValueError:
+            pass
+    for fmt in ("%b %d, %Y", "%B %d, %Y", "%d %b %Y", "%d %B %Y", "%d %b %Y"):
+        try:
+            return datetime.strptime(re.sub(r"\s+", " ", raw)[:32], fmt).date()
+        except ValueError:
+            continue
+    return None
 
 
 def _transfer_kind(text: str) -> tuple[str, int | None]:
@@ -673,11 +812,30 @@ def _total_pack(kind: str, fee: int | None) -> tuple[int | None, str]:
     return fee, format_eur(fee)
 
 
+def _spell_window(spell: dict[str, Any], today):
+    start = _parse_tm_date(spell.get("arrived"))
+    departed = _parse_tm_date(spell.get("departed"))
+    end = departed or today
+    return start, end
+
+
+def _wage_window(spell: dict[str, Any], today):
+    start = _parse_tm_date(spell.get("arrived"))
+    departed = _parse_tm_date(spell.get("departed"))
+    until = _parse_tm_date(spell.get("contract_until"))
+    if departed:
+        end = departed
+    elif until:
+        end = until
+    else:
+        end = today
+    return start, end
+
+
 def _finish_spell(spell: dict[str, Any], today) -> dict[str, Any]:
     from app.slugs import club_display, club_path, is_free_agent
 
-    start = _iso_day(spell.get("arrived"))
-    end = _iso_day(spell.get("departed")) if spell.get("departed") else today
+    start, end = _spell_window(spell, today)
     days = None
     if start is not None and end is not None:
         days = max((end - start).days, 0)
@@ -712,6 +870,34 @@ def _finish_spell(spell: dict[str, Any], today) -> dict[str, Any]:
     return spell
 
 
+def _stamp_contract(career: dict[str, Any], profile: dict[str, Any] | None) -> None:
+    profile = profile or {}
+    club = profile.get("club") if isinstance(profile.get("club"), dict) else {}
+    until = _parse_tm_date((club or {}).get("contractExpires"))
+    joined = _parse_tm_date(profile.get("joined"))
+    today = datetime.now(timezone.utc).date()
+    for spell in career.get("current") or []:
+        if not isinstance(spell, dict):
+            continue
+        if joined and not _parse_tm_date(spell.get("arrived")):
+            spell["arrived"] = joined.isoformat()
+        if until:
+            spell["contract_until"] = until.isoformat()
+        _finish_spell(spell, today)
+
+
+def _club_core(name: str) -> str:
+    from app.slugs import fold_tr
+
+    n = fold_tr(name)
+    n = re.sub(
+        r"\b(fk|jk|sk|fc|cf|ac|as|afc|istanbul|spor|sportif|faaliyetler|club|kulubu|kulup)\b",
+        " ",
+        n,
+    )
+    return re.sub(r"[^a-z0-9]+", "", n)
+
+
 def _club_wage_hit(spell_club: str, wage_club: str) -> bool:
     from app.slugs import club_names_match, club_query_hit
 
@@ -719,28 +905,51 @@ def _club_wage_hit(spell_club: str, wage_club: str) -> bool:
         return True
     left = club_query_hit(spell_club, wage_club)
     right = club_query_hit(wage_club, spell_club)
-    return (left is not None and left <= 1) or (right is not None and right <= 1)
+    if (left is not None and left <= 1) or (right is not None and right <= 1):
+        return True
+    a, b = _club_core(spell_club), _club_core(wage_club)
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    if min(len(a), len(b)) >= 6 and (a in b or b in a):
+        return True
+    return False
 
 
-def _attach_wages(career: dict[str, Any], name: str) -> None:
-    from app.wages import fetch_player_wages
-
-    pack = fetch_player_wages(name) or {}
+def _apply_wage_pack(career: dict[str, Any], pack: dict[str, Any] | None) -> None:
+    pack = pack or {}
     rows = [row for row in (pack.get("rows") or []) if isinstance(row, dict) and row.get("annual_eur")]
     if not rows:
         return
     bonus = pack.get("bonus_annual_eur")
     today = datetime.now(timezone.utc).date()
+    latest = sorted(rows, key=lambda row: int(row.get("year") or 0))[-1]
     for section in ("current", "former"):
         for spell in career.get(section) or []:
             if spell.get("kind") in {"donus", "baslangic"}:
                 continue
             hits = [row for row in rows if _club_wage_hit(str(spell.get("club") or ""), str(row.get("club") or ""))]
+            if not hits and section == "current" and spell.get("ongoing"):
+                hits = [latest]
             if not hits:
                 continue
-            start = _iso_day(spell.get("arrived"))
-            end = _iso_day(spell.get("departed")) if spell.get("departed") else today
-            if start is None or end is None or end < start:
+            start, end = _wage_window(spell, today)
+            if start is None:
+                annual = int(hits[-1].get("annual_eur") or 0)
+                if annual <= 0:
+                    continue
+                if end is not None and end > today:
+                    bill = int(round(annual * max((end - today).days, 30) / 365.25))
+                else:
+                    bill = annual
+                _write_wage_spell(spell, hits, bill, bonus, section)
+                continue
+            if end is None or end < start:
+                annual = int(hits[-1].get("annual_eur") or 0)
+                if annual <= 0:
+                    continue
+                _write_wage_spell(spell, hits, annual, bonus, section)
                 continue
             hits = sorted(hits, key=lambda row: int(row.get("year") or 0))
             bill = 0
@@ -765,42 +974,79 @@ def _attach_wages(career: dict[str, Any], name: str) -> None:
                 used_rows.append(row)
             if not used_rows:
                 used_rows = [hits[-1]]
-                days = int(spell.get("days") or 0)
+                days = max(int(spell.get("days") or 0), (end - start).days)
                 bill = int(round(int(used_rows[0].get("annual_eur") or 0) * max(days, 1) / 365.25))
             if not bill:
                 continue
-            annuals = [int(row.get("annual_eur") or 0) for row in used_rows if row.get("annual_eur")]
-            last = used_rows[-1]
-            weekly = last.get("weekly_eur")
-            spell["wage_annual"] = last.get("annual_eur")
-            spell["wage_weekly"] = weekly
-            if len(set(annuals)) > 1:
-                spell["wage_label"] = f"{format_eur(min(annuals))}–{format_eur(max(annuals))} / yıl"
-            elif annuals:
-                spell["wage_label"] = f"{format_eur(annuals[0])} / yıl"
-            else:
-                spell["wage_label"] = "Açıklanmadı"
-            spell["wage_weekly_label"] = f"{format_eur(weekly)} / hafta" if weekly else ""
-            spell["wage_total"] = bill
-            spell["wage_total_label"] = format_eur(bill)
-            if bonus and section == "current" and spell.get("ongoing"):
-                spell["wage_bonus"] = int(bonus)
-                spell["wage_bonus_label"] = format_eur(bonus)
-            fee = spell.get("fee")
-            kind = str(spell.get("kind") or "")
-            fee_part = None
-            if kind == "bedelsiz":
-                fee_part = 0
-            elif isinstance(fee, int):
-                fee_part = fee
-            if fee_part is None:
-                spell["total"] = bill
-                spell["total_label"] = format_eur(bill)
-                spell["total_scope"] = "maas"
-            else:
-                spell["total"] = fee_part + bill
-                spell["total_label"] = format_eur(fee_part + bill)
-                spell["total_scope"] = "tam"
+            _write_wage_spell(spell, used_rows, bill, bonus, section)
+
+
+def _write_wage_spell(
+    spell: dict[str, Any],
+    used_rows: list[dict[str, Any]],
+    bill: int,
+    bonus: Any,
+    section: str,
+) -> None:
+    annuals = [int(row.get("annual_eur") or 0) for row in used_rows if row.get("annual_eur")]
+    last = used_rows[-1]
+    weekly = last.get("weekly_eur")
+    spell["wage_annual"] = last.get("annual_eur")
+    spell["wage_weekly"] = weekly
+    if len(set(annuals)) > 1:
+        spell["wage_label"] = f"{format_eur(min(annuals))}–{format_eur(max(annuals))} / yıl"
+    elif annuals:
+        spell["wage_label"] = f"{format_eur(annuals[0])} / yıl"
+    else:
+        spell["wage_label"] = "Açıklanmadı"
+    spell["wage_weekly_label"] = f"{format_eur(weekly)} / hafta" if weekly else ""
+    spell["wage_total"] = bill
+    spell["wage_total_label"] = format_eur(bill)
+    if bonus and section == "current" and spell.get("ongoing"):
+        spell["wage_bonus"] = int(bonus)
+        spell["wage_bonus_label"] = format_eur(bonus)
+    fee = spell.get("fee")
+    kind = str(spell.get("kind") or "")
+    fee_part = None
+    if kind == "bedelsiz":
+        fee_part = 0
+    elif isinstance(fee, int):
+        fee_part = fee
+    if fee_part is None:
+        spell["total"] = bill
+        spell["total_label"] = format_eur(bill)
+        spell["total_scope"] = "maas"
+    else:
+        spell["total"] = fee_part + bill
+        spell["total_label"] = format_eur(fee_part + bill)
+        spell["total_scope"] = "tam"
+
+
+def _attach_wages(career: dict[str, Any], name: str, pack: dict[str, Any] | None = None) -> dict[str, Any]:
+    if pack is None:
+        from app.wages import fetch_player_wages
+
+        pack = fetch_player_wages(name) or {}
+    _apply_wage_pack(career, pack)
+    return pack
+
+
+def _fetch_wages_safe(name: str) -> dict[str, Any] | None:
+    try:
+        from app.wages import fetch_player_wages
+
+        return fetch_player_wages(name)
+    except (httpx.HTTPError, ValueError, TypeError, json.JSONDecodeError):
+        return None
+
+
+def _fetch_fotmob_safe(name: str, club: str) -> dict[str, Any] | None:
+    try:
+        from app.live_fotmob import player_dossier
+
+        return player_dossier(name, club)
+    except (httpx.HTTPError, ValueError, TypeError, json.JSONDecodeError):
+        return None
 
 
 def _player_career(player_id: str) -> dict:
@@ -914,50 +1160,96 @@ def _player_career(player_id: str) -> dict:
     }
 
 
-def player_bundle(player_id: int | str, fresh: bool = True) -> dict:
-    pid = str(player_id)
-    key = f"bundle:v4:{pid}"
-    if not fresh:
-        cached = _get_cache(key)
-        if cached is not None:
-            return cached
-    profile: dict = {}
+def _skeleton_bundle() -> dict[str, Any]:
+    return {
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "profile": {},
+        "stats": [],
+        "market_value": None,
+        "market_history": [],
+        "ranking": {},
+        "injuries": [],
+        "career": _empty_career(),
+        "transfers": [],
+        "fotmob": None,
+        "partial": True,
+        "source": TM_WEB,
+    }
+
+
+def _player_bundle_fetch(pid: str, name: str = "", club: str = "") -> dict[str, Any]:
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+
+    career = _empty_career()
     injuries: list = []
     stats: list = []
+    profile: dict = {}
     market_value = None
     history: list = []
-    career: dict = {
-        "current": [],
-        "former": [],
-        "youth": [],
-        "fee_sum": None,
-        "fee_sum_label": "",
-    }
-    try:
-        from concurrent.futures import ThreadPoolExecutor
-
-        with ThreadPoolExecutor(max_workers=4) as pool:
-            fut_profile = pool.submit(_scrape_profile, pid)
-            fut_market = pool.submit(_market_history, pid)
-            fut_stats = pool.submit(_scrape_stats, pid)
-            fut_career = pool.submit(_player_career, pid)
-            profile = fut_profile.result() or {}
-            market_value, history = fut_market.result()
-            stats = fut_stats.result() or []
-            career = fut_career.result() or career
-        if market_value is None:
-            market_value = profile.get("marketValue")
-        else:
-            profile["marketValue"] = market_value
-        player_name = str(profile.get("name") or profile.get("fullName") or "").strip()
-        if player_name:
+    fotmob = None
+    wages_complete = True
+    career_ok = True
+    hint_name = str(name or "").strip()
+    hint_club = str(club or "").strip()
+    with ThreadPoolExecutor(max_workers=7) as pool:
+        fut_profile = pool.submit(_scrape_profile, pid)
+        fut_market = pool.submit(_market_history, pid)
+        fut_stats = pool.submit(_scrape_stats, pid)
+        fut_career = pool.submit(_player_career, pid)
+        fut_inj = pool.submit(_scrape_injuries, pid)
+        fut_wages = pool.submit(_fetch_wages_safe, hint_name) if hint_name else None
+        fut_fm = pool.submit(_fetch_fotmob_safe, hint_name, hint_club) if hint_name else None
+        profile = _wait_fut(fut_profile, {}) or {}
+        player_name = str(profile.get("name") or profile.get("fullName") or hint_name or "").strip()
+        club_name = str((profile.get("club") or {}).get("name") or hint_club or "").strip()
+        if fut_wages is None and player_name:
+            fut_wages = pool.submit(_fetch_wages_safe, player_name)
+        if fut_fm is None and player_name:
+            fut_fm = pool.submit(_fetch_fotmob_safe, player_name, club_name)
+        try:
+            mv, hist = fut_market.result(timeout=32)
+            market_value = mv
+            history = hist or []
+        except (httpx.HTTPError, TimeoutError, FuturesTimeout, TypeError, ValueError):
+            market_value, history = None, []
+        stats = _wait_fut(fut_stats, []) or []
+        try:
+            career = fut_career.result(timeout=32) or career
+        except (httpx.HTTPError, TimeoutError, FuturesTimeout, ValueError, TypeError, json.JSONDecodeError):
+            career_ok = False
+        if not (career.get("current") or career.get("former") or career.get("youth")):
+            time.sleep(0.55)
             try:
-                _attach_wages(career, player_name)
-            except (httpx.HTTPError, ValueError, TypeError):
-                pass
-    except httpx.HTTPError:
-        profile = profile or {}
-    bundle = {
+                retry = _player_career(pid) or _empty_career()
+            except (httpx.HTTPError, ValueError, TypeError, json.JSONDecodeError):
+                retry = _empty_career()
+                career_ok = False
+            if retry.get("current") or retry.get("former") or retry.get("youth"):
+                career = retry
+                career_ok = True
+            else:
+                career_ok = False
+        _stamp_contract(career, profile)
+        injuries = _wait_fut(fut_inj, []) or []
+        pack = _wait_fut(fut_wages, None, timeout=28)
+        if (not isinstance(pack, dict) or not (pack.get("rows") or [])) and player_name:
+            alt = str(profile.get("fullName") or "").strip()
+            if alt and alt.casefold() != player_name.casefold():
+                extra = _fetch_wages_safe(alt)
+                if isinstance(extra, dict) and extra.get("rows"):
+                    pack = extra
+        if isinstance(pack, dict):
+            _apply_wage_pack(career, pack)
+            wages_complete = bool(pack.get("complete", True))
+        elif player_name:
+            wages_complete = False
+        fotmob = _wait_fut(fut_fm, None, timeout=16)
+    if market_value is None:
+        market_value = profile.get("marketValue")
+    else:
+        profile["marketValue"] = market_value
+    partial = (not career_ok) or (bool(player_name) and not wages_complete and not _career_has_wage(career))
+    return {
         "fetched_at": datetime.now(timezone.utc).isoformat(),
         "profile": profile,
         "stats": stats,
@@ -967,11 +1259,57 @@ def player_bundle(player_id: int | str, fresh: bool = True) -> dict:
         "injuries": injuries,
         "career": career,
         "transfers": [],
+        "fotmob": fotmob,
+        "partial": partial,
         "source": TM_WEB,
     }
-    if profile or history or (career.get("current") or career.get("former") or career.get("youth")):
-        _set_cache(key, bundle)
-    return bundle
+
+
+def player_bundle(
+    player_id: int | str,
+    fresh: bool = True,
+    name: str | None = None,
+    club: str | None = None,
+) -> dict:
+    pid = str(player_id)
+    key = f"bundle:v7:{pid}"
+    cached = _get_cache(key)
+    if cached and _bundle_ready(cached):
+        return cached
+    if cached and _bundle_has_body(cached) and not fresh:
+        return cached
+    with _FLIGHT_LOCK:
+        holder = _FLIGHT.get(pid)
+        if holder is None:
+            holder = {"event": threading.Event(), "bundle": None}
+            _FLIGHT[pid] = holder
+            leader = True
+        else:
+            leader = False
+    if not leader:
+        holder["event"].wait(timeout=70)
+        got = holder.get("bundle")
+        if isinstance(got, dict) and _bundle_has_body(got):
+            return got
+        cached = _get_cache(key)
+        if cached:
+            return cached
+        return got if isinstance(got, dict) else _skeleton_bundle()
+    try:
+        try:
+            bundle = _player_bundle_fetch(pid, name=str(name or ""), club=str(club or ""))
+        except (httpx.HTTPError, ValueError, TypeError, json.JSONDecodeError, TimeoutError):
+            bundle = cached if isinstance(cached, dict) else _skeleton_bundle()
+        holder["bundle"] = bundle
+        if _bundle_has_body(bundle):
+            ttl = 25 if bundle.get("partial") else _TTL
+            _set_cache(key, bundle, ttl=ttl)
+        return bundle
+    finally:
+        holder["event"].set()
+        with _FLIGHT_LOCK:
+            if _FLIGHT.get(pid) is holder:
+                del _FLIGHT[pid]
 
 
 def current_season_totals(stats: list[dict]) -> dict:

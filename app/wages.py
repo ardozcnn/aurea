@@ -284,25 +284,25 @@ def _collapse_same_deal(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
-def _capology_snapshot(name: str) -> str:
+def _capology_snapshot(name: str) -> tuple[str, bool]:
     slug = slugify(name)
     if not slug:
-        return ""
+        return "", True
     cdx = (
         "https://web.archive.org/cdx/search/cdx?url="
         + quote(f"capology.com/player/{slug}*")
         + "&output=json&fl=timestamp,original&filter=statuscode:200&limit=40"
     )
     try:
-        with httpx.Client(headers=_HEADERS, follow_redirects=True, timeout=20.0, verify=False) as client:
+        with httpx.Client(headers=_HEADERS, follow_redirects=True, timeout=12.0, verify=False) as client:
             response = client.get(cdx)
             if response.status_code >= 400:
-                return ""
+                return "", False
             payload = response.json()
     except (httpx.HTTPError, json.JSONDecodeError, ValueError):
-        return ""
+        return "", False
     if not isinstance(payload, list) or len(payload) < 2:
-        return ""
+        return "", True
     best_ts = ""
     best_url = ""
     for item in payload[1:]:
@@ -316,37 +316,37 @@ def _capology_snapshot(name: str) -> str:
             best_ts = ts
             best_url = original
     if not best_ts or not best_url:
-        return ""
+        return "", True
     if best_url.startswith("http://"):
         best_url = "https://" + best_url[len("http://") :]
     archived = f"https://web.archive.org/web/{best_ts}id_/{best_url}"
     try:
-        with httpx.Client(headers=_HEADERS, follow_redirects=True, timeout=35.0, verify=False) as client:
+        with httpx.Client(headers=_HEADERS, follow_redirects=True, timeout=18.0, verify=False) as client:
             response = client.get(archived)
             html = response.text if response.status_code < 400 else ""
     except httpx.HTTPError:
-        return ""
+        return "", False
     if len(html) < 2000:
-        return ""
-    return html
+        return "", True
+    return html, True
 
 
-def _fetch_capology(name: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    html = _capology_snapshot(name)
+def _fetch_capology(name: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool]:
+    html, ok = _capology_snapshot(name)
     if not html:
-        return [], []
+        return [], [], ok
     soup = BeautifulSoup(html, "lxml")
     heading = soup.title.get_text(" ", strip=True) if soup.title else ""
     if heading and not _name_hit(name, heading.split("|")[0]):
-        return [], []
+        return [], [], True
     big = max((script.get_text() or "" for script in soup.select("script")), key=len, default="")
     if "data_archive" not in big and "data_active" not in big:
-        return [], []
+        return [], [], True
     archive: list[dict[str, Any]] = []
     active: list[dict[str, Any]] = []
     _parse_capology_array(_js_array(big, "data_archive"), archive)
     _parse_capology_array(_js_array(big, "data_active"), active)
-    return archive, _collapse_same_deal(active)
+    return archive, _collapse_same_deal(active), True
 
 
 def _search_slug(name: str) -> str | None:
@@ -403,29 +403,45 @@ def _salaryleaks_pack(query: str) -> dict[str, Any]:
 
 
 def fetch_player_wages(name: str) -> dict[str, Any]:
-    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 
     from app.live_tm import _get_cache, _set_cache
 
-    empty: dict[str, Any] = {"rows": [], "bonus_annual_eur": None}
+    empty: dict[str, Any] = {"rows": [], "bonus_annual_eur": None, "complete": True}
     query = str(name or "").strip()
     if len(query) < 4:
         return empty
-    key = f"wages:v5:{fold_tr(query)}"
+    key = f"wages:v6:{fold_tr(query)}"
     cached = _get_cache(key)
-    if isinstance(cached, dict) and "rows" in cached:
+    if isinstance(cached, dict) and "rows" in cached and cached.get("complete"):
         return cached
-    leaks: dict[str, Any] = empty
+    leaks: dict[str, Any] = {"rows": [], "bonus_annual_eur": None}
     archive: list[dict[str, Any]] = []
     active: list[dict[str, Any]] = []
+    leaks_ok = True
+    cap_ok = True
     try:
         with ThreadPoolExecutor(max_workers=2) as pool:
             fut_leaks = pool.submit(_salaryleaks_pack, query)
             fut_cap = pool.submit(_fetch_capology, query)
-            leaks = fut_leaks.result() or empty
-            archive, active = fut_cap.result() or ([], [])
+            try:
+                leaks = fut_leaks.result(timeout=22) or leaks
+            except (httpx.HTTPError, TimeoutError, FuturesTimeout, ValueError, TypeError):
+                leaks_ok = False
+            try:
+                got = fut_cap.result(timeout=22)
+                if isinstance(got, tuple) and len(got) >= 3:
+                    archive, active, cap_ok = list(got[0] or []), list(got[1] or []), bool(got[2])
+                elif isinstance(got, tuple) and len(got) == 2:
+                    archive, active = list(got[0] or []), list(got[1] or [])
+                    cap_ok = True
+                else:
+                    cap_ok = False
+            except (httpx.HTTPError, TimeoutError, FuturesTimeout, ValueError, TypeError):
+                cap_ok = False
     except (httpx.HTTPError, ValueError, TypeError, json.JSONDecodeError):
-        leaks = leaks or empty
+        leaks_ok = False
+        cap_ok = False
     rows: list[dict[str, Any]] = list(leaks.get("rows") or [])
     had_leaks = bool(rows)
     for row in archive:
@@ -447,10 +463,16 @@ def fetch_player_wages(name: str) -> dict[str, Any]:
                 row.get("weekly") or row.get("weekly_eur"),
                 str(row.get("currency") or "EUR"),
             )
+    complete = leaks_ok and cap_ok
     pack = {
         "rows": rows,
         "bonus_annual_eur": leaks.get("bonus_annual_eur"),
         "source": "SalaryLeaks+Capology",
+        "complete": complete,
     }
-    _set_cache(key, pack, ttl=_WAGE_TTL if rows else 3 * 3600)
+    if complete:
+        ttl = _WAGE_TTL if rows else 45 * 60
+    else:
+        ttl = 45 if rows else 25
+    _set_cache(key, pack, ttl=ttl)
     return pack

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
-from .names import best_match, normalize_name
+from .names import best_match, club_key, normalize_name
 
 
 REQUIRED = ("player_name", "team", "position", "price_m")
@@ -22,6 +23,7 @@ OPTIONAL = (
     "tff_xg",
     "tff_xa",
     "tff_points",
+    "tff_round_points",
     "tff_ppm",
     "tff_minutes",
     "tff_starts",
@@ -119,6 +121,22 @@ def _stat_row(stats: pd.DataFrame, match_name: str) -> pd.Series | None:
     return hit.iloc[0]
 
 
+def _wrong_person(price_row: Any, stat_row: pd.Series) -> bool:
+    """Farklı kulüpteki benzer soyadı eşleşmesini ele; gerçek transferi korur."""
+    price_club = club_key(str(price_row.get("team") or ""))
+    stat_club = club_key(str(stat_row.get("team") or ""))
+    if not price_club or not stat_club or price_club == stat_club:
+        return False
+    stat_name = normalize_name(str(stat_row.get("player") or ""))
+    if not stat_name:
+        return True
+    for field in ("player_name", "display_name", "match_name", "search_name"):
+        value = normalize_name(str(price_row.get(field) or ""))
+        if value and value == stat_name:
+            return False
+    return True
+
+
 def merge_prices(stats: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
     """
     Fiyat listesindeki her oyuncuyu stats ile fuzzy eşleştir.
@@ -150,6 +168,9 @@ def merge_prices(stats: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
                 if {st_pos, tff_pos} != {"MF", "FW"}:
                     st = None
                     score = 0.0
+        if st is not None and _wrong_person(pr, st):
+            st = None
+            score = 0.0
         display = str(pr.get("display_name") or pr["player_name"])
 
         base = {
@@ -167,6 +188,7 @@ def merge_prices(stats: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
             "tff_xg": pr.get("tff_xg") or 0,
             "tff_xa": pr.get("tff_xa") or 0,
             "tff_points": pr.get("tff_points") or 0,
+            "tff_round_points": pr.get("tff_round_points") or 0,
             "tff_ppm": pr.get("tff_ppm") or 0,
             "tff_minutes": pr.get("tff_minutes") or 0,
             "tff_starts": pr.get("tff_starts") or 0,
@@ -217,6 +239,30 @@ def merge_prices(stats: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
                     "fixture_attack_mult": st.get("fixture_attack_mult", 1.0),
                     "fixture_cs_mult": st.get("fixture_cs_mult", 1.0),
                     "fixture_cs_note": st.get("fixture_cs_note", ""),
+                    "fixture_band": st.get("fixture_band", ""),
+                    "fixture_match_kind": st.get("fixture_match_kind", ""),
+                    "fixture_p_cs": st.get("fixture_p_cs"),
+                    "fixture_lambda_for": st.get("fixture_lambda_for"),
+                    "fixture_lambda_against": st.get("fixture_lambda_against"),
+                    "table_pos": st.get("table_pos"),
+                    "opp_table_pos": st.get("opp_table_pos"),
+                    "table_n": st.get("table_n"),
+                    "team_gf_pg": st.get("team_gf_pg"),
+                    "team_ga_pg": st.get("team_ga_pg"),
+                    "opp_gf_pg": st.get("opp_gf_pg"),
+                    "opp_ga_pg": st.get("opp_ga_pg"),
+                    "odds_favorite": st.get("odds_favorite"),
+                    "odds_p_win": st.get("odds_p_win"),
+                    "odds_p_over_25": st.get("odds_p_over_25"),
+                    "odds_p_btts": st.get("odds_p_btts"),
+                    "odds_p_first": st.get("odds_p_first"),
+                    "odds_corner_line": st.get("odds_corner_line"),
+                    "odds_expected_corners": st.get("odds_expected_corners"),
+                    "odds_gs_override": st.get("odds_gs_override"),
+                    "odds_source": st.get("odds_source"),
+                    "pts_week0": st.get("pts_week0"),
+                    "pts_week1": st.get("pts_week1"),
+                    "pts_week2": st.get("pts_week2"),
                     "recency_mult": st.get("recency_mult", 1.0),
                 }
             )
@@ -260,6 +306,21 @@ def merge_prices(stats: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
                     "fixture_attack_mult": 1.0,
                     "fixture_cs_mult": 1.0,
                     "fixture_cs_note": "",
+                    "fixture_band": "",
+                    "fixture_match_kind": "",
+                    "fixture_p_cs": None,
+                    "fixture_lambda_for": None,
+                    "fixture_lambda_against": None,
+                    "table_pos": None,
+                    "opp_table_pos": None,
+                    "table_n": None,
+                    "team_gf_pg": None,
+                    "team_ga_pg": None,
+                    "opp_gf_pg": None,
+                    "opp_ga_pg": None,
+                    "pts_week0": None,
+                    "pts_week1": None,
+                    "pts_week2": None,
                     "recency_mult": 1.0,
                 }
             )

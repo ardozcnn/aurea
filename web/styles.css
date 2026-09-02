@@ -16,7 +16,7 @@
   --radius: 16px;
   --font: Outfit, "Segoe UI", "Helvetica Neue", sans-serif;
   --display: "Cormorant Garamond", Palatino, Georgia, serif;
-  --prose: "Source Serif 4", "Palatino Linotype", Palatino, Georgia, serif;
+  --prose: Outfit, "Segoe UI", "Helvetica Neue", sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -210,7 +210,7 @@ body.on-home .nav-search {
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 28px 32px;
+  padding: 22px 24px;
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
 }
 .page-head { margin-bottom: 28px; }
@@ -251,8 +251,8 @@ h1 { font-size: clamp(32px, 4vw, 48px); line-height: 1.12; font-weight: 500; let
   font-family: var(--prose);
   color: var(--muted);
   margin: 14px 0 0;
-  font-size: clamp(16.5px, 1.9vw, 18.5px);
-  line-height: 1.7;
+  font-size: clamp(15px, 1.7vw, 16.5px);
+  line-height: 1.6;
   letter-spacing: 0.01em;
   text-wrap: pretty;
 }
@@ -518,9 +518,9 @@ h1 { font-size: clamp(32px, 4vw, 48px); line-height: 1.12; font-weight: 500; let
   margin: 0;
   font-family: var(--prose);
   color: var(--muted);
-  font-size: 17px;
+  font-size: 14.5px;
   font-weight: 400;
-  line-height: 1.85;
+  line-height: 1.65;
   text-wrap: pretty;
 }
 
@@ -573,19 +573,19 @@ h1 { font-size: clamp(32px, 4vw, 48px); line-height: 1.12; font-weight: 500; let
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.12);
 }
 .group h3 {
-  font-size: 17px;
+  font-size: 20px;
   color: var(--gold);
-  padding: 20px 22px 0;
+  padding: 16px 18px 0;
   font-family: var(--display);
   font-weight: 500;
   letter-spacing: 0.02em;
   text-transform: none;
 }
-.group article { padding: 16px 22px 20px; border-bottom: 1px solid var(--line); }
+.group article { padding: 12px 18px 16px; border-bottom: 1px solid var(--line); }
 .group .chip-board article { border-bottom: 0; padding: 12px 12px 10px; }
 .group article b { font-family: var(--display); font-size: 19px; font-weight: 500; display: block; margin-bottom: 4px; }
 .group article:last-child { border-bottom: 0; }
-.group p { margin: 8px 0 0; font-family: var(--prose); color: var(--muted); font-size: 16.5px; font-weight: 400; line-height: 1.8; }
+.group p { margin: 6px 0 0; font-family: var(--prose); color: var(--muted); font-size: 13.5px; font-weight: 400; line-height: 1.55; }
 .chip-legend {
   padding: 0 18px 8px;
   margin: 0;
@@ -756,7 +756,7 @@ h1 { font-size: clamp(32px, 4vw, 48px); line-height: 1.12; font-weight: 500; let
 .method h2 { font-size: 22px; font-weight: 500; margin: 28px 0 8px; }
 .hidden { display: none !important; }
 .error { color: var(--red); }
-.sub { color: var(--muted); font-size: 15.5px; line-height: 1.65; }
+.sub { color: var(--muted); font-size: 13.5px; line-height: 1.55; }
 .wait { text-align: center; padding: 80px 20px; color: var(--muted); }
 .wait b { display: block; color: var(--ink); font-family: var(--display); font-size: 26px; font-weight: 500; margin-bottom: 10px; letter-spacing: 0.01em; }
 .wait p { font-family: var(--prose); font-size: 16.5px; line-height: 1.7; }
@@ -837,14 +837,14 @@ h1 { font-size: clamp(32px, 4vw, 48px); line-height: 1.12; font-weight: 500; let
     linear-gradient(180deg, #1a1b26 0%, #12131a 100%);
   border: 1px solid rgba(212, 181, 106, 0.22);
   border-radius: var(--radius);
-  padding: 32px 16px 36px;
+  padding: 24px 12px 28px;
   display: flex;
   flex-direction: column;
-  gap: 28px;
-  min-height: 520px;
+  gap: 22px;
+  min-height: 480px;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
   position: relative;
-  margin-top: 20px;
+  margin-top: 16px;
 }
 .pitch::before {
   content: "";
@@ -861,21 +861,40 @@ h1 { font-size: clamp(32px, 4vw, 48px); line-height: 1.12; font-weight: 500; let
   gap: 16px;
 }
 .shirt {
-  width: 128px;
+  width: 118px;
+  min-width: 0;
   text-align: center;
   text-decoration: none;
   color: inherit;
   background: rgba(28, 27, 36, 0.92);
   border: 1px solid var(--line);
   border-radius: 12px;
-  padding: 12px 10px;
+  padding: 10px 8px;
   position: relative;
   z-index: 1;
 }
 .shirt:hover { border-color: var(--gold); }
 .shirt.captain { border-color: var(--gold); background: var(--gold-dim); }
-.shirt b { display: block; font-family: var(--display); font-size: 15px; font-weight: 500; line-height: 1.25; }
-.shirt span { display: block; color: var(--muted); font-size: 12px; margin-top: 4px; }
+.shirt.vice { border-color: color-mix(in srgb, var(--gold) 55%, var(--line)); }
+.shirt b {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.2;
+}
+.shirt span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .auth-card { max-width: 520px; margin: 12px auto 0; }
 .auth-form { display: grid; gap: 16px; margin-top: 22px; }
@@ -889,17 +908,23 @@ h1 { font-size: clamp(32px, 4vw, 48px); line-height: 1.12; font-weight: 500; let
   font: inherit;
   color: var(--ink);
 }
-.auth-form .btn { justify-self: start; }
+.auth-form .btn { justify-self: stretch; width: 100%; height: 44px; font-size: 15px; }
 .account-strip {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 20px;
-  margin-bottom: 20px;
+  margin-bottom: 14px;
   border-left: 3px solid var(--gold);
 }
 .account-strip h2 { font-size: 22px; font-weight: 500; }
-.account-mail { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+.account-mail { margin: 4px 0 0; color: var(--muted); font-size: 12.5px; }
+.fresh-stamp {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  letter-spacing: 0.01em;
+}
 .account-strip .lede { max-width: 42ch; }
 .league .crest { width: 42px; height: 28px; border-radius: 4px; }
 .league .crest.flag-ch { width: 28px; height: 28px; }
@@ -1031,9 +1056,9 @@ h1 { font-size: clamp(32px, 4vw, 48px); line-height: 1.12; font-weight: 500; let
 }
 .form-picks {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 12px;
-  padding: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 10px;
+  padding: 12px 16px 16px;
 }
 .form-pick {
   appearance: none;
@@ -1044,11 +1069,11 @@ h1 { font-size: clamp(32px, 4vw, 48px); line-height: 1.12; font-weight: 500; let
   background: var(--fill);
   border: 1px solid var(--line);
   border-radius: 12px;
-  padding: 12px 14px;
+  padding: 10px 12px;
 }
 .form-pick:hover, .form-pick.on { border-color: var(--gold); background: var(--gold-dim); }
-.form-pick b { display: block; font-family: var(--display); font-size: 20px; font-weight: 500; }
-.form-pick span { color: var(--muted); font-size: 13px; }
+.form-pick b { display: block; font-family: var(--display); font-size: 18px; font-weight: 500; }
+.form-pick span { color: var(--muted); font-size: 12px; }
 .scout-block { margin-top: 36px; }
 .scout-block h2 { font-size: 26px; font-weight: 500; margin: 0 0 14px; }
 .scout-list { display: grid; gap: 12px; }
@@ -1200,21 +1225,56 @@ h1 { font-size: clamp(32px, 4vw, 48px); line-height: 1.12; font-weight: 500; let
   font-size: 13px;
   font-weight: 500;
 }
+#fx-bench {
+  margin-top: 0;
+}
+.bench-panel {
+  overflow: hidden;
+}
+.bench-note {
+  padding: 8px 22px 0;
+  margin: 0;
+}
 .bench-list {
   display: grid;
-  gap: 12px;
-  padding: 8px 0 12px;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  padding: 16px 22px 22px;
 }
 .bench-list .bench-who {
-  display: block;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
   background: var(--fill);
   border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 12px 16px;
+  border-radius: 14px;
+  padding: 16px 18px;
+  min-height: 88px;
 }
 .bench-who { color: inherit; text-decoration: none; min-width: 0; }
-.bench-who b { display: block; font-family: var(--display); font-size: 18px; font-weight: 500; }
-.bench-who span { color: var(--muted); font-size: 13px; }
+.bench-slot {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--gold-dim);
+  color: var(--gold);
+  font-size: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.bench-copy { min-width: 0; }
+.bench-who b {
+  display: block;
+  font-family: var(--display);
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 1.25;
+}
+.bench-copy span { color: var(--muted); font-size: 14px; }
+.bench-pts { display: block; margin-top: 2px; color: var(--ink); font-size: 14px; }
 
 @media (max-width: 980px) {
   .nav { padding: 12px 16px; flex-wrap: wrap; gap: 12px; }
@@ -1263,6 +1323,7 @@ h1 { font-size: clamp(32px, 4vw, 48px); line-height: 1.12; font-weight: 500; let
   }
   .pitch { min-height: 0; padding: 18px 8px 22px; }
   .shirt { width: 108px; }
+  .bench-list { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 640px) {
@@ -1348,25 +1409,25 @@ h1 { font-size: clamp(32px, 4vw, 48px); line-height: 1.12; font-weight: 500; let
 .player-facts { margin-top: 20px; }
 .player-head .sub { margin-top: 10px; }
 .analysis-prose article {
-  padding: 24px 26px;
+  padding: 14px 18px 16px;
 }
 .analysis-prose article h4 {
   display: block;
   font-family: var(--display);
-  font-size: 22px;
+  font-size: 18px;
   font-weight: 500;
-  margin: 0 0 10px;
+  margin: 0 0 6px;
   letter-spacing: 0.015em;
   color: var(--ink);
 }
 .analysis-prose article p {
-  margin: 0 0 14px;
+  margin: 0 0 8px;
   font-family: var(--prose);
-  font-size: 17px;
-  line-height: 1.88;
+  font-size: 13.5px;
+  line-height: 1.55;
   font-weight: 400;
-  letter-spacing: 0.01em;
-  color: #d8d1c4;
+  letter-spacing: 0.005em;
+  color: #cfc8bb;
   text-wrap: pretty;
 }
 .analysis-prose article p:last-child { margin-bottom: 0; }
@@ -1375,16 +1436,16 @@ h1 { font-size: clamp(32px, 4vw, 48px); line-height: 1.12; font-weight: 500; let
 .search-filters input { min-width: 220px; flex: 1; }
 
 .method-prose { display: grid; gap: 24px; }
-.method-block h2 { font-size: 28px; margin-bottom: 16px; letter-spacing: 0.01em; }
-.method-head { padding: 32px 34px 30px; }
-.method-block { padding: 30px 34px 32px; }
+.method-block h2 { font-size: 24px; margin-bottom: 12px; letter-spacing: 0.01em; }
+.method-head { padding: 26px 28px 24px; }
+.method-block { padding: 22px 26px 24px; }
 .method-block p {
-  margin: 0 0 14px;
+  margin: 0 0 10px;
   font-family: var(--prose);
-  font-size: 17.5px;
-  line-height: 1.9;
+  font-size: 14.5px;
+  line-height: 1.65;
   font-weight: 400;
-  letter-spacing: 0.01em;
+  letter-spacing: 0.005em;
   color: #d4cdc0;
   text-wrap: pretty;
 }

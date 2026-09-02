@@ -12,22 +12,32 @@ import time
 from typing import Any
 
 from .config import (
-    FIXTURE_ATTACK_CEILING,
-    FIXTURE_ATTACK_FLOOR,
-    FIXTURE_CS_CEILING,
-    FIXTURE_CS_FLOOR,
     HORIZON_WEEKS,
     MATCH_MODEL_BLEND,
-    SAVE_MULT_CEILING,
-    SAVE_MULT_FLOOR,
 )
-from .names import normalize_name
+from .names import club_key
 
 LEAGUE_GOAL_RATE = 1.35
 LEAGUE_CS_RATE = 0.28
 HOME_ADVANTAGE = 1.28
 PREV_SEASON_WEIGHT = 0.50
 RECENCY_DECAY = 0.007
+_TOP_CLUBS = frozenset(
+    {
+        "galatasaray",
+        "fenerbahce",
+        "besiktas",
+        "trabzonspor",
+    }
+)
+# Derbi yalnızca bu üçünün kendi aralarındaki maçtır: sonucu tahmin edilmez.
+_DERBY_CLUBS = frozenset(
+    {
+        "galatasaray",
+        "fenerbahce",
+        "besiktas",
+    }
+)
 
 
 def _clip(value: float, lo: float, hi: float) -> float:
@@ -68,8 +78,8 @@ def matches_from_events(
             continue
         home = str((event.get("homeTeam") or {}).get("name") or "")
         away = str((event.get("awayTeam") or {}).get("name") or "")
-        home_key = normalize_name(home)
-        away_key = normalize_name(away)
+        home_key = club_key(home)
+        away_key = club_key(away)
         if not home_key or not away_key or home_key == away_key:
             continue
         hg, ag = goals
@@ -101,7 +111,7 @@ def ratings_from_standings(
     attack: dict[str, float] = {}
     defence: dict[str, float] = {}
     for team, row in metrics.items():
-        key = normalize_name(team)
+        key = club_key(team)
         if not key:
             continue
         gf = float(row.get("gf") or avg)
@@ -235,17 +245,45 @@ def blend_ratings(primary: dict[str, Any], fallback: dict[str, Any], *, current_
     }
 
 
+def classify_fixture(
+    lambda_for: float,
+    lambda_against: float,
+    team_key: str,
+    opp_key: str,
+    attack: dict[str, float],
+) -> str:
+    ratio = float(lambda_for) / max(float(lambda_against), 0.25)
+    t_att = float(attack.get(team_key) or 1.0)
+    o_att = float(attack.get(opp_key) or 1.0)
+    close = abs(float(lambda_for) - float(lambda_against)) <= 0.48
+    both_strong = t_att >= 1.12 and o_att >= 1.12
+    if team_key in _DERBY_CLUBS and opp_key in _DERBY_CLUBS:
+        return "derbi"
+    if both_strong and close:
+        return "denk"
+    if t_att >= 1.18 and o_att <= 0.82 and ratio >= 1.22:
+        return "kolay"
+    if t_att <= 0.82 and o_att >= 1.18 and ratio <= 0.82:
+        return "zor"
+    if ratio >= 1.42:
+        return "kolay"
+    if ratio <= 0.72:
+        return "zor"
+    return "denk"
+
+
 def predict_lambdas(
     ratings: dict[str, Any],
     team: str,
     opponent: str,
     *,
     home: bool,
-) -> dict[str, float]:
+    market: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     attack = ratings.get("attack") or {}
     defence = ratings.get("defence") or {}
-    team_key = normalize_name(team)
-    opp_key = normalize_name(opponent)
+    team_key = club_key(team)
+    opp_key = club_key(opponent)
     att = float(attack.get(team_key) or 1.0)
     opp_def = float(defence.get(opp_key) or 1.0)
     opp_att = float(attack.get(opp_key) or 1.0)
@@ -258,23 +296,23 @@ def predict_lambdas(
     else:
         lambda_for = att * opp_def * scale
         lambda_against = opp_att * own_def * home_adv * scale
-    lambda_for = _clip(lambda_for, 0.40, 3.20)
-    lambda_against = _clip(lambda_against, 0.40, 3.20)
+    lambda_for = _clip(lambda_for, 0.30, 3.50)
+    lambda_against = _clip(lambda_against, 0.30, 3.50)
     league_avg = float(ratings.get("league_avg") or LEAGUE_GOAL_RATE)
-    p_cs = math.exp(-lambda_against)
-    attack_mult = _clip(lambda_for / max(league_avg, 0.4), FIXTURE_ATTACK_FLOOR, FIXTURE_ATTACK_CEILING)
-    cs_mult = _clip(p_cs / LEAGUE_CS_RATE, FIXTURE_CS_FLOOR, FIXTURE_CS_CEILING)
-    save_mult = _clip(lambda_against / max(league_avg, 0.4), SAVE_MULT_FLOOR, SAVE_MULT_CEILING)
     team_goal_rate = _clip(att * scale, 0.50, 2.60)
-    return {
-        "lambda_for": round(lambda_for, 4),
-        "lambda_against": round(lambda_against, 4),
-        "p_cs": round(_clip(p_cs, 0.05, 0.72), 4),
-        "attack_mult": round(attack_mult, 4),
-        "cs_mult": round(cs_mult, 4),
-        "save_mult": round(save_mult, 4),
-        "team_goal_rate": round(team_goal_rate, 4),
-    }
+    kind = classify_fixture(lambda_for, lambda_against, team_key, opp_key, attack)
+    from .odds import apply_gs_favorite_override, finalize_prediction
+
+    market = apply_gs_favorite_override(market, team if home else opponent, opponent if home else team)
+    return finalize_prediction(
+        lambda_for,
+        lambda_against,
+        kind=kind,
+        league_avg=league_avg,
+        team_goal_rate=team_goal_rate,
+        market=market,
+        home=home,
+    )
 
 
 def group_events_by_matchweek(
@@ -287,8 +325,8 @@ def group_events_by_matchweek(
     seen: set[str] = set()
     ordered = sorted(events or [], key=lambda e: e.get("startTimestamp") or 0)
     for event in ordered:
-        home = normalize_name(str((event.get("homeTeam") or {}).get("name") or ""))
-        away = normalize_name(str((event.get("awayTeam") or {}).get("name") or ""))
+        home = club_key(str((event.get("homeTeam") or {}).get("name") or ""))
+        away = club_key(str((event.get("awayTeam") or {}).get("name") or ""))
         if not home or not away:
             continue
         if home in seen or away in seen:
@@ -311,8 +349,9 @@ def fixture_pack(
     opponent: str,
     *,
     home: bool,
+    market: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    pred = predict_lambdas(ratings, team, opponent, home=home)
+    pred = predict_lambdas(ratings, team, opponent, home=home, market=market)
     return {
         "opponent": opponent,
         "home": bool(home),

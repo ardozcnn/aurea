@@ -21,7 +21,7 @@ from .fetch_stats import (
 )
 from .load_prices import load_prices, merge_prices
 from .manager_cards import choose_manager_card, load_card_state, manager_card_advice
-from .names import normalize_name
+from .names import club_key
 from .optimize import optimize_squad
 from .scoring import (
     apply_context_adjustments,
@@ -32,6 +32,30 @@ from .tff_client import fetch_tff_prices, load_saved_login, save_prices_csv
 from .weekly_report import write_weekly_png
 
 ProgressCb = Callable[[str], None]
+
+# Sofascore satırı eşleşmeyen oyuncu da haftalık maç bağlamını görmeli.
+_FIXTURE_FILL = {
+    "fixture_match_kind": "match_kind",
+    "fixture_lambda_for": "lambda_for",
+    "fixture_lambda_against": "lambda_against",
+    "fixture_p_cs": "p_cs",
+    "table_pos": "table_pos",
+    "table_n": "table_n",
+    "opp_table_pos": "opp_table_pos",
+    "team_gf_pg": "team_gf_pg",
+    "team_ga_pg": "team_ga_pg",
+    "opp_gf_pg": "opp_gf_pg",
+    "opp_ga_pg": "opp_ga_pg",
+    "odds_favorite": "odds_favorite",
+    "odds_p_win": "odds_p_win",
+    "odds_p_over_25": "odds_p_over_25",
+    "odds_p_btts": "odds_p_btts",
+    "odds_p_first": "odds_p_first",
+    "odds_corner_line": "odds_corner_line",
+    "odds_expected_corners": "odds_expected_corners",
+    "odds_gs_override": "odds_gs_override",
+    "odds_source": "odds_source",
+}
 
 
 def _say(progress: ProgressCb | None, msg: str) -> None:
@@ -125,7 +149,7 @@ def run_pipeline(
     merged = merge_prices(players, prices)
     fixture_context = meta.get("fixture_context") or {}
     cs_context = {
-        normalize_name(str(team)): {"cs_rate": float(rate)}
+        club_key(str(team)): {"cs_rate": float(rate)}
         for team, rate in (base_cs or {}).items()
     }
     cs_values = [
@@ -147,6 +171,17 @@ def run_pipeline(
             merged.at[idx, "fixture_home"] = fixture.get("home")
             merged.at[idx, "fixture_attack_mult"] = fixture.get("attack_mult") or 1.0
             merged.at[idx, "fixture_cs_mult"] = fixture.get("cs_mult") or 1.0
+            for col, src_key in _FIXTURE_FILL.items():
+                value = fixture.get(src_key)
+                if col not in merged.columns:
+                    merged[col] = None
+                # Oran alanı yoksa eski kulüpten sızan kote silinir.
+                if col.startswith("odds_"):
+                    merged.at[idx, col] = value
+                    continue
+                if value is None:
+                    continue
+                merged.at[idx, col] = value
     matched = int(merged["stats_player"].notna().sum())
     _say(progress, f"SL eşleşmesi: {matched}/{len(merged)}")
 
@@ -198,6 +233,22 @@ def run_pipeline(
     cap["reason"] = str(cap_row.get("reason") or cap.get("reason") or "")
     cap["data_src"] = str(cap_row.get("data_src") or "")
     result["captain"] = cap
+    vice = result.get("vice_captain")
+    if isinstance(vice, dict) and vice.get("player"):
+        vice_player = str(vice.get("player") or "")
+        vice_hit = (
+            xi[xi["player"].astype(str) == vice_player]
+            if vice_player and "player" in xi.columns
+            else xi.iloc[0:0]
+        )
+        if not vice_hit.empty:
+            vice_row = vice_hit.iloc[0]
+            vice["display_name"] = str(
+                vice_row.get("display_name") or vice.get("player") or ""
+            )
+            vice["reason"] = str(vice_row.get("reason") or vice.get("reason") or "")
+            vice["data_src"] = str(vice_row.get("data_src") or "")
+            result["vice_captain"] = vice
 
     fixtures: list[dict[str, str]] = []
     try:
@@ -266,7 +317,9 @@ def run_pipeline(
                 "Poisson takım hücum/savunma ile oyuncu gol payı; 3 haftalık ufuk; "
                 "erken sezon sayım metrikleri daha yüksek, nadir olaylar temkinli; "
                 "forma payı × beklenen puan; TFF otomatik yedek EV; "
-                "haftalık rakip ve iç/dış saha; Sofascore + FotMob doğrulaması; "
+                "haftalık rakip ve iç/dış saha; Sofascore bahis oranı (favori + 2.5 üst/alt); "
+                "GS–FB/BJK derbisinde Galatasaray kilit favori; "
+                "Sofascore + FotMob doğrulaması; "
                 "resmî TFF puan kalibrasyonu; dış lig→SL dönüşüm; "
                 "diziliş otomatik; yedek sırası otomatik girişe göre."
             ),
@@ -287,6 +340,7 @@ def run_pipeline(
             "xi_projected": result.get("xi_projected"),
             "bench_projected": result.get("bench_projected"),
             "captain": result["captain"],
+            "vice_captain": result.get("vice_captain") or {},
             "budget": result["budget"],
         },
         "leaders": leaders,

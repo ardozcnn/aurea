@@ -6,6 +6,7 @@ from unittest.mock import patch
 import pandas as pd
 
 from calibrate_leagues import is_domestic_league, season_start
+from src.config import RED_PENALTY, YELLOW_PENALTY
 from src.fetch_fotmob import (
     hot_form_blend_weight,
     hot_form_expected_points,
@@ -111,8 +112,8 @@ class ScoringTests(unittest.TestCase):
         full_form, full_base = blend_weights(6.0)
         self.assertAlmostEqual(first_form, 1.0 / 5.0)
         self.assertAlmostEqual(first_base, 4.0 / 5.0)
-        self.assertAlmostEqual(full_form, 0.42)
-        self.assertAlmostEqual(full_base, 0.58)
+        self.assertAlmostEqual(full_form, 0.30)
+        self.assertAlmostEqual(full_base, 0.70)
 
         hot = hot_form_expected_points(
             {
@@ -254,7 +255,11 @@ class ScoringTests(unittest.TestCase):
         clean_points = expected_points_from_rates(clean, "MF", appearance=1.0)
         carded_points = expected_points_from_rates(carded, "MF", appearance=1.0)
 
-        self.assertAlmostEqual(clean_points - carded_points, 0.5, places=6)
+        self.assertAlmostEqual(
+            clean_points - carded_points,
+            0.2 * YELLOW_PENALTY + 0.1 * RED_PENALTY,
+            places=6,
+        )
 
     def test_official_tff_points_calibrate_only_after_minutes_exist(self) -> None:
         frame = pd.DataFrame(
@@ -410,8 +415,9 @@ class ScoringTests(unittest.TestCase):
             ]
         )
         adjusted = apply_context_adjustments(frame)
-        self.assertGreaterEqual(float(adjusted.loc[0, "pts_if_plays"]), 5.5)
-        self.assertLess(float(adjusted.loc[0, "pts_if_plays"]), 9.0)
+        self.assertTrue(bool(adjusted.loc[0, "selection_eligible"]))
+        self.assertGreaterEqual(float(adjusted.loc[0, "pts_if_plays"]), 3.4)
+        self.assertLess(float(adjusted.loc[0, "pts_if_plays"]), 5.2)
 
     def test_fotmob_injury_blocks_selection_even_if_tff_says_available(self) -> None:
         frame = pd.DataFrame(
@@ -489,10 +495,10 @@ class ScoringTests(unittest.TestCase):
         adjusted = apply_context_adjustments(frame)
         cheap = float(adjusted.loc[0, "pts_if_plays"])
         star = float(adjusted.loc[1, "pts_if_plays"])
-        self.assertLess(cheap, 9.0)
+        self.assertLess(cheap, 5.2)
         self.assertLess(star, 9.0)
         self.assertNotAlmostEqual(cheap, 16.0, places=1)
-        self.assertGreater(cheap, 5.0)
+        self.assertGreater(cheap, 3.4)
         self.assertGreater(star, 5.5)
 
     def test_current_week_goalkeeper_tff_ranks_clean_sheet_over_collapse(self) -> None:
@@ -648,6 +654,48 @@ class ScoringTests(unittest.TestCase):
         self.assertGreater(
             estimate_play_probability(current),
             estimate_play_probability(unused) + 0.25,
+        )
+
+    def test_zero_minute_backup_gk_has_crushed_play_probability(self) -> None:
+        unused = {
+            "player": "Bilal Bayazit",
+            "team": "Samsunspor",
+            "position": "GK",
+            "form_apps": 5,
+            "min_per_app": 90,
+            "current_minutes": 0,
+            "tff_minutes": 0,
+            "tff_starts": 0,
+            "availability": "AVAILABLE",
+        }
+        self.assertLess(estimate_play_probability(unused), 0.20)
+
+    def test_unused_last_season_attacker_has_lower_play_probability(self) -> None:
+        current = {
+            "player": "Muriqi",
+            "team": "Fenerbahçe",
+            "position": "FW",
+            "form_apps": 1,
+            "min_per_app": 85,
+            "current_minutes": 80,
+            "tff_minutes": 80,
+            "tff_starts": 1,
+            "availability": "AVAILABLE",
+        }
+        unused = {
+            "player": "Talisca",
+            "team": "Fenerbahçe",
+            "position": "FW",
+            "form_apps": 0,
+            "min_per_app": 88,
+            "current_minutes": 0,
+            "tff_minutes": 2100,
+            "tff_starts": 28,
+            "availability": "AVAILABLE",
+        }
+        self.assertGreater(
+            estimate_play_probability(current),
+            estimate_play_probability(unused) + 0.35,
         )
 
     def test_one_match_three_goals_conceded_does_not_crush_goalkeeper(self) -> None:
@@ -810,7 +858,7 @@ class ScoringTests(unittest.TestCase):
         self.assertAlmostEqual(_recency_multiplier(0, 6), 0.72)
         self.assertGreater(_recency_multiplier(5, 6), 0.9)
         self.assertEqual(recency_for_projection(1, 6, preseason=True), 1.0)
-        self.assertAlmostEqual(recency_for_projection(1, 6, preseason=False), 0.65 + 0.35 / 6)
+        self.assertAlmostEqual(recency_for_projection(1, 6, preseason=False), 0.72 + 0.28 / 6)
 
     def test_current_club_matches_restore_readiness(self) -> None:
         self.assertEqual(readiness_multiplier(4, 280), 1.0)
@@ -893,7 +941,8 @@ class ScoringTests(unittest.TestCase):
 
         self.assertGreater(predicted, regression)
         self.assertLess(predicted, source)
-        self.assertGreater(meta["identity_mix"], 0.4)
+        self.assertGreater(meta["identity_mix"], 0.25)
+        self.assertLessEqual(meta["identity_mix"], 0.38)
 
     def test_typical_goal_rate_keeps_regression(self) -> None:
         model = {
@@ -1153,9 +1202,45 @@ class ScoringTests(unittest.TestCase):
             ]
         )
         ordered = order_bench_for_autosub(bench)
-        self.assertEqual(int(ordered.iloc[0]["bench_rank"]), 1)
         self.assertEqual(str(ordered.iloc[0]["position"]), "GK")
-        self.assertEqual(list(ordered["bench_rank"]), [1, 2, 3])
+        self.assertEqual(int(ordered.iloc[0]["bench_rank"]), 0)
+        self.assertEqual(str(ordered.iloc[1]["position"]), "MF")
+        self.assertEqual(int(ordered.iloc[1]["bench_rank"]), 1)
+        self.assertEqual(list(ordered["player"]), ["Yedek KL", "Yedek OS", "Yedek FW"])
+
+    def test_autosub_skips_unused_backup_gk_so_outfielder_enters(self) -> None:
+        from src.autosub import apply_autosub, order_bench_for_autosub
+
+        xi = pd.DataFrame(
+            [
+                {"player": "XI GK", "position": "GK", "pts_if_plays": 4.0},
+                {"player": "DF1", "position": "DF", "pts_if_plays": 3.0},
+                {"player": "DF2", "position": "DF", "pts_if_plays": 3.0},
+                {"player": "DF3", "position": "DF", "pts_if_plays": 3.0},
+                {"player": "MF1", "position": "MF", "pts_if_plays": 3.0},
+                {"player": "MF2", "position": "MF", "pts_if_plays": 3.0},
+                {"player": "MF3", "position": "MF", "pts_if_plays": 3.0},
+                {"player": "MF4", "position": "MF", "pts_if_plays": 3.0},
+                {"player": "FW1", "position": "FW", "pts_if_plays": 3.0},
+                {"player": "FW2", "position": "FW", "pts_if_plays": 3.0},
+                {"player": "FW3", "position": "FW", "pts_if_plays": 3.0},
+            ]
+        )
+        bench = order_bench_for_autosub(
+            pd.DataFrame(
+                [
+                    {"player": "Yedek KL", "position": "GK", "pts_if_plays": 2.0, "play_probability": 0.1},
+                    {"player": "Yedek OS", "position": "MF", "pts_if_plays": 8.0, "play_probability": 1.0},
+                ]
+            )
+        )
+        played = {name: True for name in list(xi["player"]) + list(bench["player"])}
+        played["MF1"] = False
+        played["Yedek KL"] = False
+        final_xi, events = apply_autosub(xi, bench, played=played)
+        self.assertEqual(events[0]["in"], "Yedek OS")
+        self.assertIn("Yedek OS", final_xi["player"].tolist())
+        self.assertNotIn("Yedek KL", final_xi["player"].tolist())
 
     def test_expected_squad_points_rewards_useful_bench_cover(self) -> None:
         from src.autosub import expected_squad_points
@@ -1190,6 +1275,475 @@ class ScoringTests(unittest.TestCase):
             draws=200,
         )
         self.assertGreater(covered["expected_pts"], uncovered["expected_pts"])
+
+    def test_autosub_stops_after_first_legal_entry(self) -> None:
+        from src.autosub import apply_autosub
+
+        xi = pd.DataFrame(
+            [
+                {"player": "XI GK", "position": "GK", "pts_if_plays": 4.0},
+                {"player": "DF1", "position": "DF", "pts_if_plays": 3.0},
+                {"player": "DF2", "position": "DF", "pts_if_plays": 3.0},
+                {"player": "DF3", "position": "DF", "pts_if_plays": 3.0},
+                {"player": "MF1", "position": "MF", "pts_if_plays": 3.0},
+                {"player": "MF2", "position": "MF", "pts_if_plays": 3.0},
+                {"player": "MF3", "position": "MF", "pts_if_plays": 3.0},
+                {"player": "MF4", "position": "MF", "pts_if_plays": 3.0},
+                {"player": "FW1", "position": "FW", "pts_if_plays": 3.0},
+                {"player": "FW2", "position": "FW", "pts_if_plays": 3.0},
+                {"player": "FW3", "position": "FW", "pts_if_plays": 3.0},
+            ]
+        )
+        bench = pd.DataFrame(
+            [
+                {
+                    "player": "Bench DF",
+                    "position": "DF",
+                    "pts_if_plays": 4.0,
+                    "bench_rank": 1,
+                },
+                {
+                    "player": "Bench MF",
+                    "position": "MF",
+                    "pts_if_plays": 5.0,
+                    "bench_rank": 2,
+                },
+            ]
+        )
+        played = {name: True for name in list(xi["player"]) + list(bench["player"])}
+        played["DF1"] = False
+        played["MF1"] = False
+        final_xi, events = apply_autosub(xi, bench, played=played)
+        self.assertEqual(len(events), 2)
+        self.assertEqual(events[0]["in"], "Bench DF")
+        self.assertEqual(events[1]["in"], "Bench MF")
+        self.assertIn("Bench DF", final_xi["player"].tolist())
+        self.assertIn("Bench MF", final_xi["player"].tolist())
+
+    def test_autosub_later_bench_cannot_jump_playing_earlier_slot(self) -> None:
+        from src.autosub import apply_autosub
+
+        xi = pd.DataFrame(
+            [
+                {"player": "XI GK", "position": "GK", "pts_if_plays": 4.0},
+                {"player": "DF1", "position": "DF", "pts_if_plays": 3.0},
+                {"player": "DF2", "position": "DF", "pts_if_plays": 3.0},
+                {"player": "DF3", "position": "DF", "pts_if_plays": 3.0},
+                {"player": "MF1", "position": "MF", "pts_if_plays": 3.0},
+                {"player": "MF2", "position": "MF", "pts_if_plays": 3.0},
+                {"player": "MF3", "position": "MF", "pts_if_plays": 3.0},
+                {"player": "MF4", "position": "MF", "pts_if_plays": 3.0},
+                {"player": "FW1", "position": "FW", "pts_if_plays": 3.0},
+                {"player": "FW2", "position": "FW", "pts_if_plays": 3.0},
+                {"player": "FW3", "position": "FW", "pts_if_plays": 3.0},
+            ]
+        )
+        bench = pd.DataFrame(
+            [
+                {"player": "Sira1", "position": "DF", "pts_if_plays": 4.0, "bench_rank": 1},
+                {"player": "Sira3", "position": "MF", "pts_if_plays": 9.0, "bench_rank": 3},
+            ]
+        )
+        played = {name: True for name in list(xi["player"]) + list(bench["player"])}
+        played["DF1"] = False
+        _final_xi, events = apply_autosub(xi, bench, played=played)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["in"], "Sira1")
+
+    def test_autosub_idle_rank_one_gives_way_to_rank_two(self) -> None:
+        from src.autosub import apply_autosub
+
+        xi = pd.DataFrame(
+            [
+                {"player": "XI GK", "position": "GK", "pts_if_plays": 4.0},
+                {"player": "DF1", "position": "DF", "pts_if_plays": 3.0},
+                {"player": "DF2", "position": "DF", "pts_if_plays": 3.0},
+                {"player": "DF3", "position": "DF", "pts_if_plays": 3.0},
+                {"player": "MF1", "position": "MF", "pts_if_plays": 3.0},
+                {"player": "MF2", "position": "MF", "pts_if_plays": 3.0},
+                {"player": "MF3", "position": "MF", "pts_if_plays": 3.0},
+                {"player": "MF4", "position": "MF", "pts_if_plays": 3.0},
+                {"player": "FW1", "position": "FW", "pts_if_plays": 3.0},
+                {"player": "FW2", "position": "FW", "pts_if_plays": 3.0},
+                {"player": "FW3", "position": "FW", "pts_if_plays": 3.0},
+            ]
+        )
+        bench = pd.DataFrame(
+            [
+                {"player": "Sira1", "position": "DF", "pts_if_plays": 4.0, "bench_rank": 1},
+                {"player": "Sira2", "position": "MF", "pts_if_plays": 5.0, "bench_rank": 2},
+                {"player": "Sira3", "position": "FW", "pts_if_plays": 9.0, "bench_rank": 3},
+            ]
+        )
+        played = {name: True for name in list(xi["player"]) + list(bench["player"])}
+        played["MF1"] = False
+        played["Sira1"] = False
+        _final_xi, events = apply_autosub(xi, bench, played=played)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["in"], "Sira2")
+        self.assertNotIn("Sira3", [event["in"] for event in events])
+
+    def test_expected_squad_points_passes_armband_to_vice(self) -> None:
+        from src.autosub import expected_squad_points
+
+        xi = pd.DataFrame(
+            [
+                {"player": "Star", "position": "FW", "pts_if_plays": 8.0, "play_probability": 0.9},
+                {"player": "Vice", "position": "FW", "pts_if_plays": 5.0, "play_probability": 1.0},
+                {"player": "XI GK", "position": "GK", "pts_if_plays": 2.0, "play_probability": 1.0},
+                {"player": "DF1", "position": "DF", "pts_if_plays": 2.0, "play_probability": 1.0},
+                {"player": "DF2", "position": "DF", "pts_if_plays": 2.0, "play_probability": 1.0},
+                {"player": "DF3", "position": "DF", "pts_if_plays": 2.0, "play_probability": 1.0},
+                {"player": "MF1", "position": "MF", "pts_if_plays": 2.0, "play_probability": 1.0},
+                {"player": "MF2", "position": "MF", "pts_if_plays": 2.0, "play_probability": 1.0},
+                {"player": "MF3", "position": "MF", "pts_if_plays": 2.0, "play_probability": 1.0},
+                {"player": "MF4", "position": "MF", "pts_if_plays": 2.0, "play_probability": 1.0},
+                {"player": "FW3", "position": "FW", "pts_if_plays": 2.0, "play_probability": 1.0},
+            ]
+        )
+        ev = expected_squad_points(xi, pd.DataFrame(), draws=40)
+        self.assertEqual(ev["captain_player"], "Star")
+        self.assertEqual(ev["vice_captain_player"], "Vice")
+        self.assertGreater(ev["expected_pts"], 36.0)
+
+    def test_hot_tff_round_lifts_vlahovic_like_forward(self) -> None:
+        frame = pd.DataFrame(
+            [
+                {
+                    "player": "Vlahović",
+                    "team": "Beşiktaş",
+                    "position": "FW",
+                    "projected_pts": 4.0,
+                    "price_m": 10.0,
+                    "availability": "AVAILABLE",
+                    "form_apps": 1,
+                    "min_per_app": 80,
+                    "tff_minutes": 104,
+                    "tff_starts": 1,
+                    "tff_points": 17,
+                    "tff_round_points": 16,
+                    "tff_goals": 3,
+                    "tff_ppm": 8.5,
+                    "gls_pa": 0.45,
+                    "xg_pa": 0.40,
+                    "fixture_match_kind": "denk",
+                }
+            ]
+        )
+        out = apply_context_adjustments(frame)
+        self.assertGreater(float(out.loc[0, "pts_if_plays"]), 6.0)
+
+    def test_talisca_without_current_start_has_crushed_play_probability(self) -> None:
+        unused = {
+            "player": "Talisca",
+            "team": "Fenerbahçe",
+            "position": "FW",
+            "form_apps": 0,
+            "min_per_app": 88,
+            "current_minutes": 0,
+            "tff_minutes": 2100,
+            "tff_starts": 28,
+            "availability": "AVAILABLE",
+        }
+        self.assertLess(estimate_play_probability(unused), 0.20)
+
+    def test_derby_side_pairs_detects_fener_besiktas(self) -> None:
+        from src.optimize import _derby_side_pairs
+
+        df = pd.DataFrame(
+            [
+                {
+                    "team": "Fenerbahçe",
+                    "fixture_opponent": "Beşiktaş",
+                    "fixture_match_kind": "derbi",
+                },
+                {
+                    "team": "Beşiktaş",
+                    "fixture_opponent": "Fenerbahçe",
+                    "fixture_match_kind": "derbi",
+                },
+                {
+                    "team": "Galatasaray",
+                    "fixture_opponent": "Konyaspor",
+                    "fixture_match_kind": "kolay",
+                },
+            ]
+        )
+        pairs = _derby_side_pairs(df)
+        self.assertEqual(len(pairs), 1)
+        self.assertEqual(set(pairs[0]), {"besiktas", "fenerbahce"})
+
+    def test_even_fixture_pairs_detects_samsun_kocaeli(self) -> None:
+        from src.optimize import _even_fixture_pairs
+
+        df = pd.DataFrame(
+            [
+                {
+                    "team": "Samsunspor",
+                    "fixture_opponent": "Kocaelispor",
+                    "fixture_match_kind": "",
+                },
+                {
+                    "team": "Kocaelispor",
+                    "fixture_opponent": "Samsunspor",
+                },
+                {
+                    "team": "Galatasaray",
+                    "fixture_opponent": "Başakşehir",
+                    "fixture_match_kind": "kolay",
+                },
+            ]
+        )
+        pairs = _even_fixture_pairs(df)
+        self.assertEqual(len(pairs), 1)
+        self.assertEqual(set(pairs[0]), {"kocaelispor", "samsunspor"})
+
+    def test_optimize_keeps_one_derby_side_and_drops_joe_mendes(self) -> None:
+        from src.optimize import optimize_squad
+
+        rows = []
+
+        def add(name, team, pos, price, pts, play=0.95, **kw):
+            rows.append(
+                {
+                    "player": name,
+                    "team": team,
+                    "position": pos,
+                    "price_m": price,
+                    "pts_if_plays": pts,
+                    "play_probability": play,
+                    "projected_pts": pts * play,
+                    "selection_pts": pts * play,
+                    "availability": "AVAILABLE",
+                    **kw,
+                }
+            )
+
+        add("GK1", "Konyaspor", "GK", 4.0, 3.5)
+        add("GK2", "Rizespor", "GK", 4.0, 3.2)
+        clubs = [
+            "Sivasspor",
+            "Kayserispor",
+            "Alanyaspor",
+            "Eyupspor",
+            "Goztepe",
+            "Kasimpasa",
+            "Bodrumspor",
+            "Hatayspor",
+        ]
+        for i, club in enumerate(clubs):
+            add(f"DF{i}", club, "DF", 4.5, 3.1)
+        add(
+            "Josafat Wooding Mendes",
+            "Samsunspor",
+            "DF",
+            4.5,
+            9.0,
+            display_name="Joe Mendes",
+            fixture_opponent="Kocaelispor",
+        )
+        add(
+            "Haidara",
+            "Kocaelispor",
+            "DF",
+            4.5,
+            8.5,
+            fixture_opponent="Samsunspor",
+        )
+        add(
+            "Bayazit",
+            "Samsunspor",
+            "GK",
+            4.0,
+            8.0,
+            play=0.10,
+        )
+        add(
+            "Archie",
+            "Fenerbahce",
+            "DF",
+            5.0,
+            8.0,
+            fixture_opponent="Besiktas",
+            fixture_match_kind="derbi",
+        )
+        add(
+            "Greenwood",
+            "Fenerbahce",
+            "MF",
+            8.0,
+            6.6,
+            fixture_opponent="Besiktas",
+            fixture_match_kind="derbi",
+        )
+        add(
+            "Salih",
+            "Besiktas",
+            "MF",
+            7.5,
+            6.5,
+            fixture_opponent="Fenerbahce",
+            fixture_match_kind="derbi",
+        )
+        for i, club in enumerate(clubs[:6]):
+            add(f"MF{i}", club, "MF", 5.0, 3.3)
+        add(
+            "Osimhen",
+            "Galatasaray",
+            "FW",
+            14.0,
+            7.2,
+            fixture_opponent="Konyaspor",
+            fixture_match_kind="kolay",
+        )
+        add(
+            "EnNesyri",
+            "Fenerbahce",
+            "FW",
+            10.0,
+            6.3,
+            fixture_opponent="Besiktas",
+            fixture_match_kind="derbi",
+        )
+        add(
+            "Immobile",
+            "Besiktas",
+            "FW",
+            9.0,
+            6.2,
+            fixture_opponent="Fenerbahce",
+            fixture_match_kind="derbi",
+        )
+        add("Talisca", "Fenerbahce", "FW", 8.5, 8.0, play=0.15)
+        add("FWX", "Trabzonspor", "FW", 7.0, 4.0)
+        add("FWY", "Sivasspor", "FW", 6.0, 3.6)
+        result = optimize_squad(pd.DataFrame(rows), autosub_draws=16)
+        names = set(result["squad"]["player"].astype(str))
+        xi_names = set(result["xi"]["player"].astype(str))
+        fb = names & {"Greenwood", "EnNesyri", "Talisca"}
+        bjk = names & {"Salih", "Immobile"}
+        self.assertFalse(bool(fb) and bool(bjk))
+        self.assertNotIn("Joe Mendes", names)
+        self.assertNotIn("Josafat Wooding Mendes", names)
+        self.assertNotIn("Haidara", names)
+        self.assertNotIn("Bayazit", names)
+        self.assertLessEqual(len(names & {"Archie", "Greenwood", "EnNesyri", "Talisca"}), 2)
+        self.assertNotIn("Talisca", xi_names)
+        self.assertIn("Osimhen", xi_names)
+        self.assertTrue(result.get("vice_captain", {}).get("player"))
+        self.assertNotEqual(
+            result["captain"]["player"], result["vice_captain"]["player"]
+        )
+
+    def test_optimize_limits_bottom_table_clubs_and_zero_minute_players(self) -> None:
+        from src.optimize import optimize_squad
+
+        rows = []
+
+        def add(name, team, pos, price, pts, play=0.95, table_pos=9.0, **kw):
+            rows.append(
+                {
+                    "player": name,
+                    "team": team,
+                    "position": pos,
+                    "price_m": price,
+                    "pts_if_plays": pts,
+                    "play_probability": play,
+                    "projected_pts": pts * play,
+                    "selection_pts": pts * play,
+                    "availability": "AVAILABLE",
+                    "table_pos": table_pos,
+                    "table_n": 18.0,
+                    **kw,
+                }
+            )
+
+        mid_clubs = [
+            "Konyaspor",
+            "Rizespor",
+            "Sivasspor",
+            "Kayserispor",
+            "Alanyaspor",
+            "Eyupspor",
+            "Goztepe",
+            "Kasimpasa",
+            "Antalyaspor",
+            "Gaziantep FK",
+        ]
+        for i, club in enumerate(mid_clubs):
+            add(f"GK{i}", club, "GK", 4.0, 3.4)
+            add(f"DFa{i}", club, "DF", 4.5, 3.2)
+            add(f"DFb{i}", club, "DF", 4.5, 3.1)
+            add(f"MFa{i}", club, "MF", 5.0, 3.6)
+            add(f"MFb{i}", club, "MF", 5.0, 3.5)
+            add(f"FW{i}", club, "FW", 5.5, 3.8)
+
+        # Dip sıradaki kulüpler yüksek puanla bile kadroyu doldurmamalı.
+        for i, club in enumerate(["Çorum FK", "Amed Sportif Faaliyetler"]):
+            add(f"BOTMF{i}", club, "MF", 5.0, 7.4, table_pos=18.0)
+            add(f"BOTFW{i}", club, "FW", 5.5, 7.2, table_pos=17.0)
+            add(f"BOTDF{i}", club, "DF", 4.5, 7.0, table_pos=18.0)
+
+        add("Sifir Dakika", "Konyaspor", "DF", 4.5, 12.0, play=0.20)
+
+        result = optimize_squad(pd.DataFrame(rows), autosub_draws=16)
+        names = list(result["squad"]["player"].astype(str))
+        xi_names = list(result["xi"]["player"].astype(str))
+        self.assertNotIn("Sifir Dakika", names)
+        bottom_in_squad = [n for n in names if n.startswith("BOT")]
+        bottom_in_xi = [n for n in xi_names if n.startswith("BOT")]
+        self.assertLessEqual(len(bottom_in_squad), 2)
+        self.assertLessEqual(len(bottom_in_xi), 1)
+
+    def test_merge_prices_rejects_same_surname_from_other_club(self) -> None:
+        from src.load_prices import merge_prices
+
+        stats = pd.DataFrame(
+            [
+                {
+                    "player": "Barış Alper Yılmaz",
+                    "team": "Galatasaray",
+                    "position": "MF",
+                    "projected_pts": 6.0,
+                    "current_minutes": 253.0,
+                    "form_apps": 3.0,
+                    "min_per_app": 84.3,
+                },
+                {
+                    "player": "Kerem Aktürkoğlu",
+                    "team": "Galatasaray",
+                    "position": "MF",
+                    "projected_pts": 5.5,
+                    "current_minutes": 240.0,
+                    "form_apps": 3.0,
+                    "min_per_app": 80.0,
+                },
+            ]
+        )
+        prices = pd.DataFrame(
+            [
+                {
+                    "player_name": "Emirhan Yılmaz",
+                    "display_name": "Emirhan Yılmaz",
+                    "team": "Rizespor",
+                    "position": "MF",
+                    "price_m": 4.0,
+                },
+                {
+                    "player_name": "Kerem Aktürkoğlu",
+                    "display_name": "Kerem Aktürkoğlu",
+                    "team": "Fenerbahçe",
+                    "position": "MF",
+                    "price_m": 9.0,
+                },
+            ]
+        )
+        merged = merge_prices(stats, prices)
+        wrong = merged[merged["player"] == "Emirhan Yılmaz"].iloc[0]
+        self.assertTrue(pd.isna(wrong.get("stats_player")))
+        self.assertEqual(float(wrong.get("current_minutes") or 0.0), 0.0)
+        transfer = merged[merged["player"] == "Kerem Aktürkoğlu"].iloc[0]
+        self.assertEqual(str(transfer.get("stats_player")), "Kerem Aktürkoğlu")
 
     def test_merge_prices_preserves_established_super_lig_apps(self) -> None:
         from src.load_prices import merge_prices
@@ -1230,6 +1784,49 @@ class ScoringTests(unittest.TestCase):
         self.assertEqual(float(merged.iloc[0]["prev_apps"]), 33.0)
         self.assertEqual(float(merged.iloc[0]["established_sl_apps"]), 33.0)
         self.assertAlmostEqual(float(merged.iloc[0]["cs_raw"]), 0.43)
+
+    def test_merge_prices_keeps_match_kind_and_league_table(self) -> None:
+        from src.load_prices import merge_prices
+
+        stats = pd.DataFrame(
+            [
+                {
+                    "player": "Archie Brown",
+                    "team": "Fenerbahçe",
+                    "position": "DF",
+                    "projected_pts": 4.2,
+                    "fixture_opponent": "Beşiktaş",
+                    "fixture_match_kind": "derbi",
+                    "fixture_lambda_for": 1.62,
+                    "table_pos": 2,
+                    "opp_table_pos": 3,
+                    "table_n": 18,
+                    "team_gf_pg": 2.1,
+                    "team_ga_pg": 0.8,
+                    "opp_gf_pg": 1.9,
+                    "opp_ga_pg": 0.9,
+                }
+            ]
+        )
+        prices = pd.DataFrame(
+            [
+                {
+                    "player_name": "Archie Brown",
+                    "display_name": "Archie Brown",
+                    "team": "Fenerbahçe",
+                    "position": "DF",
+                    "price_m": 5.0,
+                }
+            ]
+        )
+        merged = merge_prices(stats, prices)
+        row = merged.iloc[0]
+        self.assertEqual(str(row["fixture_match_kind"]), "derbi")
+        self.assertEqual(float(row["table_pos"]), 2.0)
+        self.assertEqual(float(row["opp_table_pos"]), 3.0)
+        self.assertEqual(float(row["table_n"]), 18.0)
+        self.assertAlmostEqual(float(row["team_ga_pg"]), 0.8)
+        self.assertAlmostEqual(float(row["fixture_lambda_for"]), 1.62)
 
     def test_established_super_lig_history_skips_external_prior(self) -> None:
         from src.fetch_external import apply_external_priors
@@ -1452,8 +2049,8 @@ class ScoringTests(unittest.TestCase):
     def test_fixture_cs_floor_preserves_strong_team_edge(self) -> None:
         from src.config import FIXTURE_CS_FLOOR
 
-        self.assertGreaterEqual(FIXTURE_CS_FLOOR, 0.85)
-        basaksehir = 0.43 * 0.85
+        self.assertGreaterEqual(FIXTURE_CS_FLOOR, 0.70)
+        basaksehir = 0.43 * FIXTURE_CS_FLOOR
         rizespor = 0.30 * 1.0
         self.assertGreater(basaksehir, rizespor)
 
@@ -1718,6 +2315,57 @@ class ScoringTests(unittest.TestCase):
                 for row in pos.values()
             ]
             self.assertTrue(any(p is False for p in promotes) or not promotes)
+
+
+class LiveTmPackTests(unittest.TestCase):
+    def test_club_display_strips_trailing_dot_not_as(self) -> None:
+        from app.slugs import club_display
+
+        self.assertEqual(club_display("Galatasaray ·"), "Galatasaray")
+        self.assertEqual(club_display("Trabzonspor A.Ş."), "Trabzonspor A.Ş.")
+
+    def test_club_wage_hit_basaksehir(self) -> None:
+        from app.live_tm import _club_wage_hit
+
+        self.assertTrue(_club_wage_hit("İstanbul Başakşehir", "Başakşehir FK"))
+        self.assertTrue(_club_wage_hit("Galatasaray", "Galatasaray A.Ş."))
+
+    def test_shirt_from_headline_hash(self) -> None:
+        from bs4 import BeautifulSoup
+
+        from app.live_tm import _read_shirt_number
+
+        html = '<h1 class="data-header__headline-wrapper">#9 Mauro Icardi</h1>'
+        soup = BeautifulSoup(html, "lxml")
+        self.assertEqual(_read_shirt_number(soup, {}, "Mauro Icardi"), "9")
+        html2 = '<h1 class="data-header__headline-wrapper">Mauro Icardi</h1>'
+        soup2 = BeautifulSoup(html2, "lxml")
+        self.assertIsNone(_read_shirt_number(soup2, {}, "Mauro Icardi"))
+
+    def test_wage_bills_joined_to_contract_end(self) -> None:
+        from app.live_tm import _apply_wage_pack, _finish_spell
+        from datetime import date
+
+        spell = {
+            "club": "Galatasaray",
+            "arrived": "2024-07-01",
+            "contract_until": "2027-06-30",
+            "ongoing": True,
+            "kind": "bedel",
+            "fee": 10_000_000,
+        }
+        today = date(2026, 9, 1)
+        _finish_spell(spell, today)
+        self.assertLess(int(spell["days"] or 0), 900)
+        career = {"current": [spell], "former": []}
+        _apply_wage_pack(
+            career,
+            {"rows": [{"year": 2024, "club": "Galatasaray", "annual_eur": 1_000_000}]},
+        )
+        billed = int(career["current"][0].get("wage_total") or 0)
+        self.assertGreater(billed, 2_700_000)
+        self.assertLess(billed, 3_200_000)
+        self.assertEqual(career["current"][0]["total"], 10_000_000 + billed)
 
 
 if __name__ == "__main__":

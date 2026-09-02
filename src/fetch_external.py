@@ -544,6 +544,15 @@ def appearance_prior(price_m: float, last_apps: float, friendly_min: float = 0.0
     return 0.62
 
 
+def _finite_float(value: Any) -> float | None:
+    try:
+        if value is None or pd.isna(value):
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def project_external_player(
     row: dict[str, Any],
     *,
@@ -552,6 +561,11 @@ def project_external_player(
     fixture_attack_mult: float = 1.0,
     fixture_cs_mult: float = 1.0,
     team_cs_rate: float | None = None,
+    fixture_save_mult: float = 1.0,
+    lambda_for: float | None = None,
+    lambda_against: float | None = None,
+    p_cs: float | None = None,
+    team_goal_rate: float | None = None,
 ) -> dict[str, Any]:
     source_rates = rates_from_totals(row)
     friendly_min = float(row.get("friendly_minutes") or 0)
@@ -598,6 +612,11 @@ def project_external_player(
         appearance=1.0,
         attack_mult=fixture_attack_mult,
         cs_mult=fixture_cs_mult,
+        save_mult=fixture_save_mult,
+        lambda_for=lambda_for,
+        lambda_against=lambda_against,
+        p_cs=p_cs,
+        team_goal_rate=team_goal_rate,
     )
     season = str(row.get("season") or "").strip()
     tourn = str(row.get("tournament") or "").strip()
@@ -845,6 +864,11 @@ def apply_external_priors(
                     "price_m": float(r["price_m"]),
                     "fixture_attack_mult": float(r.get("fixture_attack_mult") or 1.0),
                     "fixture_cs_mult": float(r.get("fixture_cs_mult") or 1.0),
+                    "fixture_save_mult": float(r.get("fixture_save_mult") or 1.0),
+                    "lambda_for": _finite_float(r.get("fixture_lambda_for")),
+                    "lambda_against": _finite_float(r.get("fixture_lambda_against")),
+                    "p_cs": _finite_float(r.get("fixture_p_cs")),
+                    "team_goal_rate": _finite_float(r.get("fixture_team_goal_rate")),
                     "team_cs_rate": (
                         float(r.get("team_cs_base"))
                         if pd.notna(r.get("team_cs_base"))
@@ -870,6 +894,11 @@ def apply_external_priors(
             fixture_attack_mult=spec["fixture_attack_mult"],
             fixture_cs_mult=spec["fixture_cs_mult"],
             team_cs_rate=spec["team_cs_rate"],
+            fixture_save_mult=spec.get("fixture_save_mult") or 1.0,
+            lambda_for=spec.get("lambda_for"),
+            lambda_against=spec.get("lambda_against"),
+            p_cs=spec.get("p_cs"),
+            team_goal_rate=spec.get("team_goal_rate"),
         )
         return idx, proj
 
@@ -944,6 +973,12 @@ def apply_external_priors(
                     "fixture_home",
                     "fixture_attack_mult",
                     "fixture_cs_mult",
+                    "fixture_save_mult",
+                    "fixture_p_cs",
+                    "fixture_lambda_for",
+                    "fixture_lambda_against",
+                    "fixture_match_kind",
+                    "fixture_team_goal_rate",
                     "form_pts",
                     "base_pts",
                     "base_src",
@@ -1002,6 +1037,29 @@ def apply_external_priors(
                     ),
                     fixture_cs_mult=float(df.at[idx, "fixture_cs_mult"] or 1.0),
                     rating=float(proj.get("rating") or 0.0),
+                    save_mult=float(df.at[idx, "fixture_save_mult"] or 1.0)
+                    if "fixture_save_mult" in df.columns
+                    else 1.0,
+                    lambda_for=_finite_float(
+                        df.at[idx, "fixture_lambda_for"]
+                        if "fixture_lambda_for" in df.columns
+                        else None
+                    ),
+                    lambda_against=_finite_float(
+                        df.at[idx, "fixture_lambda_against"]
+                        if "fixture_lambda_against" in df.columns
+                        else None
+                    ),
+                    p_cs=_finite_float(
+                        df.at[idx, "fixture_p_cs"]
+                        if "fixture_p_cs" in df.columns
+                        else None
+                    ),
+                    team_goal_rate=_finite_float(
+                        df.at[idx, "fixture_team_goal_rate"]
+                        if "fixture_team_goal_rate" in df.columns
+                        else None
+                    ),
                 )
                 league = str(proj.get("ext_league") or "dış lig")
                 level = str(proj.get("league_calibration_level") or "identity")

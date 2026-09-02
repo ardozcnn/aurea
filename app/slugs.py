@@ -141,6 +141,7 @@ def club_query_hit(name: str, query: str) -> int | None:
 
 def club_display(name: str) -> str:
     raw = str(name or "").strip()
+    raw = re.sub(r"[\s·•]+$", "", raw).strip()
     if is_free_agent(raw):
         return "Kulüpsüz"
     if not raw:

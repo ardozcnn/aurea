@@ -79,10 +79,11 @@ def apply_autosub(
     played: dict[Any, bool] | None = None,
 ) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
     """
-    Oynamayan ilk-11 oyuncularının yerine yedekleri sırayla dene.
-
-    Kaleci yalnız kaleciyle değişir. Sahada aynı mevki yedek varsa önce o
-    tercih edilir; sonra yasal kalan en yüksek oynama×puan adayı seçilir.
+    TFF sırası: yedek kaleci, ardından saha yedeği 1-2-3.
+    Oynamayan yedek atlanır; sıradaki oynayan ve yasal isim girer.
+    Formasyon bozulacaksa o isim girmez, sonraki sıraya bakılır.
+    Birden fazla ilk-11 boşluğu varsa sıra 1 ve 2 ayrı ayrı girebilir;
+    3. sıra, öndeki oynayan yedeğin önüne geçemez.
     """
     if xi is None or xi.empty:
         return pd.DataFrame(), []
@@ -93,6 +94,9 @@ def apply_autosub(
         if isinstance(bench, pd.DataFrame)
         else pd.DataFrame()
     )
+    if not bench_work.empty and "bench_rank" in bench_work.columns:
+        bench_work = bench_work.sort_values("bench_rank", kind="mergesort")
+        bench_work = bench_work.reset_index(drop=True)
     played = played or {}
 
     def did_play(row: pd.Series) -> bool:
@@ -102,37 +106,45 @@ def apply_autosub(
         return True
 
     events: list[dict[str, Any]] = []
-    used_bench: set[int] = set()
+    filled = {
+        idx for idx, row in xi_work.iterrows() if did_play(row)
+    }
 
-    for xi_pos, xi_row in xi_work.iterrows():
-        if did_play(xi_row):
+    for _, bn_row in bench_work.iterrows():
+        if not did_play(bn_row):
             continue
-        picked = _pick_bench_replacement(
-            xi_work,
-            bench_work,
-            xi_pos,
-            xi_row,
-            used_bench,
-        )
-        if picked is None:
-            continue
-        bn_pos, bn_row = picked
-        out_pos = str(xi_row.get("position") or "").upper()
         in_pos = str(bn_row.get("position") or "").upper()
-        xi_work.loc[xi_pos] = bn_row
-        used_bench.add(bn_pos)
-        events.append(
-            {
-                "out": str(xi_row.get("display_name") or xi_row.get("player") or ""),
-                "in": str(bn_row.get("display_name") or bn_row.get("player") or ""),
-                "out_pos": out_pos,
-                "in_pos": in_pos,
-            }
-        )
+        for xi_pos, xi_row in xi_work.iterrows():
+            if xi_pos in filled:
+                continue
+            out_pos = str(xi_row.get("position") or "").upper()
+            if out_pos == "GK" and in_pos != "GK":
+                continue
+            if out_pos != "GK" and in_pos == "GK":
+                continue
+            trial_positions = []
+            for idx, row in xi_work.iterrows():
+                if idx == xi_pos:
+                    trial_positions.append(in_pos)
+                elif idx in filled:
+                    trial_positions.append(str(row.get("position") or "").upper())
+                else:
+                    trial_positions.append(str(row.get("position") or "").upper())
+            if not is_legal_xi(trial_positions):
+                continue
+            xi_work.loc[xi_pos] = bn_row
+            filled.add(xi_pos)
+            events.append(
+                {
+                    "out": str(xi_row.get("display_name") or xi_row.get("player") or ""),
+                    "in": str(bn_row.get("display_name") or bn_row.get("player") or ""),
+                    "out_pos": out_pos,
+                    "in_pos": in_pos,
+                }
+            )
+            break
 
-    active = xi_work[
-        [did_play(row) for _, row in xi_work.iterrows()]
-    ].copy()
+    active = xi_work.loc[sorted(filled)].copy() if filled else pd.DataFrame()
     return active, events
 
 
@@ -140,6 +152,30 @@ def score_final_xi(final_xi: pd.DataFrame) -> float:
     if final_xi is None or final_xi.empty:
         return 0.0
     return float(sum(_row_points(row) for _, row in final_xi.iterrows()))
+
+
+def _armband_names(xi: pd.DataFrame) -> tuple[str, str]:
+    if xi is None or xi.empty or "player" not in xi.columns:
+        return "", ""
+    work = xi.reset_index(drop=True).copy()
+    work["_v"] = work.apply(lambda row: _row_points(row) * _row_play_prob(row), axis=1)
+    work = work.sort_values("_v", ascending=False)
+    cap = str(work.iloc[0].get("player") or "")
+    vice = ""
+    if len(work) > 1:
+        vice = str(work.iloc[1].get("player") or "")
+        if vice == cap:
+            vice = ""
+    return cap, vice
+
+
+def _named_points(frame: pd.DataFrame, name: str) -> float:
+    if not name or frame is None or frame.empty or "player" not in frame.columns:
+        return 0.0
+    hit = frame[frame["player"].astype(str) == str(name)]
+    if hit.empty:
+        return 0.0
+    return _row_points(hit.iloc[0])
 
 
 def expected_squad_points(
@@ -158,6 +194,7 @@ def expected_squad_points(
             "bench_expected": 0.0,
             "captain_player": "",
             "captain_pts": 0.0,
+            "vice_captain_player": "",
         }
 
     xi_df = xi.reset_index(drop=True).copy()
@@ -166,6 +203,7 @@ def expected_squad_points(
         if isinstance(bench, pd.DataFrame)
         else pd.DataFrame()
     )
+    cap_name, vice_name = _armband_names(xi_df)
     rng = np.random.default_rng(seed)
     players = []
     for source, frame in (("xi", xi_df), ("bench", bench_df)):
@@ -191,6 +229,10 @@ def expected_squad_points(
         }
         final_xi, _events = apply_autosub(xi_df, bench_df, played=played)
         score = score_final_xi(final_xi)
+        if played.get(cap_name, False):
+            score += _named_points(xi_df, cap_name)
+        elif vice_name and played.get(vice_name, False):
+            score += _named_points(xi_df, vice_name)
         if full_bench and not bench_df.empty:
             used = set(final_xi["player"].tolist()) if "player" in final_xi.columns else set()
             for _, row in bench_df.iterrows():
@@ -206,31 +248,54 @@ def expected_squad_points(
         xi_only.append(base_xi)
         bench_contrib.append(score - base_xi)
 
-    captain_row = xi_df.loc[xi_df.apply(_row_points, axis=1).idxmax()]
+    cap_pts = _named_points(xi_df, cap_name)
+    cap_play = 0.85
+    if cap_name:
+        cap_hit = xi_df[xi_df["player"].astype(str) == str(cap_name)]
+        if not cap_hit.empty:
+            cap_play = _row_play_prob(cap_hit.iloc[0])
     expected = float(np.mean(totals)) if totals else 0.0
     return {
         "expected_pts": round(expected, 3),
         "xi_expected": round(float(np.mean(xi_only)), 3) if xi_only else 0.0,
         "bench_expected": round(float(np.mean(bench_contrib)), 3) if bench_contrib else 0.0,
-        "captain_player": str(captain_row.get("player") or ""),
-        "captain_pts": round(_row_points(captain_row) * _row_play_prob(captain_row), 3),
+        "captain_player": cap_name,
+        "captain_pts": round(cap_pts * cap_play, 3),
+        "vice_captain_player": vice_name,
         "draws": int(draws),
     }
 
 
 def order_bench_for_autosub(bench: pd.DataFrame) -> pd.DataFrame:
     """
-    Otomatik giriş sırası: kaleci yedeği GK için 1., saha yedekleri
-    oynama×puan ile 2-4. Raporda bu sıra gösterilir.
+    TFF yedek sırası: kaleci yedeği önde, ardından saha 1-2-3.
+    Saha sırası oyuna girme potansiyeline göredir.
     """
     if bench is None or bench.empty:
         return pd.DataFrame() if bench is None else bench.copy()
     out = bench.copy()
-    out["_gk"] = out["position"].astype(str).str.upper().eq("GK").astype(int)
+    is_gk = out["position"].astype(str).str.upper().eq("GK")
+    out["_gk"] = is_gk.astype(int)
+    out["_enter"] = out.apply(_row_play_prob, axis=1)
     out["_score"] = out.apply(_bench_value, axis=1)
-    out = out.sort_values(["_gk", "_score"], ascending=[False, False]).drop(
-        columns=["_gk", "_score"]
+    gk = out[is_gk].copy()
+    field = out[~is_gk].copy()
+    field = field.sort_values(
+        ["_enter", "_score"],
+        ascending=[False, False],
     )
-    out = out.reset_index(drop=True)
-    out["bench_rank"] = range(1, len(out) + 1)
-    return out
+    ordered = pd.concat([gk, field], ignore_index=True) if not gk.empty else field
+    if ordered.empty:
+        ordered = out
+    ordered = ordered.drop(columns=["_gk", "_enter", "_score"], errors="ignore")
+    ordered = ordered.reset_index(drop=True)
+    ranks: list[int] = []
+    field_n = 0
+    for _, row in ordered.iterrows():
+        if str(row.get("position") or "").upper() == "GK":
+            ranks.append(0)
+        else:
+            field_n += 1
+            ranks.append(field_n)
+    ordered["bench_rank"] = ranks
+    return ordered

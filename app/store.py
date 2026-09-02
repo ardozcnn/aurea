@@ -800,7 +800,14 @@ def player_detail(player_id: int, live: bool = True) -> dict:
     eng = engine()
     assert eng is not None
     hit = df[df["player_id"] == player_id]
-    bundle = player_bundle(player_id, fresh=True) if live else {}
+    hint_name = ""
+    hint_club = ""
+    if not hit.empty:
+        hint_name = str(hit.iloc[0].get("name") or "")
+        hint_club = str(hit.iloc[0].get("current_club_name") or hit.iloc[0].get("club") or "")
+    bundle = (
+        player_bundle(player_id, fresh=True, name=hint_name, club=hint_club) if live else {}
+    )
     season = current_season_totals(bundle.get("stats") or [])
     injury_days = open_injury_days(bundle.get("injuries") or [])
     hist = bundle.get("market_history") or []
@@ -906,6 +913,7 @@ def player_detail(player_id: int, live: bool = True) -> dict:
             "injury_days": injury_days,
             "market_history": (bundle.get("market_history") or [])[-24:],
             "career": bundle.get("career") or {},
+            "partial": bool(bundle.get("partial")),
             "profile": {
                 "fullName": (bundle.get("profile") or {}).get("fullName"),
                 "shirtNumber": (bundle.get("profile") or {}).get("shirtNumber"),
@@ -965,13 +973,15 @@ def player_detail(player_id: int, live: bool = True) -> dict:
                 ]
     if live_view is None:
         live_view = {}
-    try:
-        dossier = player_dossier(
-            str(payload.get("name") or row.get("name") or ""),
-            str(payload.get("club") or row.get("current_club_name") or ""),
-        )
-    except Exception:
-        dossier = None
+    dossier = bundle.get("fotmob") if isinstance(bundle.get("fotmob"), dict) else None
+    if not dossier:
+        try:
+            dossier = player_dossier(
+                str(payload.get("name") or row.get("name") or ""),
+                str(payload.get("club") or row.get("current_club_name") or ""),
+            )
+        except Exception:
+            dossier = None
     if dossier:
         live_view["fotmob"] = dossier
         payload["form_live"] = {

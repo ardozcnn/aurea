@@ -88,6 +88,10 @@ def print_squad(result: dict[str, Any]) -> None:
     cap = result["captain"]
     cap_name = cap.get("display_name") or cap["player"]
     print(f"Kaptan : {cap_name} ({cap.get('team', '')})")
+    vice = result.get("vice_captain") or {}
+    if vice.get("player") or vice.get("display_name"):
+        vice_name = vice.get("display_name") or vice.get("player")
+        print(f"Yedek  : {vice_name} ({vice.get('team', '')})")
     print(f"Maliyet: {result['total_cost']:.1f} / {result['budget']:.1f} M TL")
     if result.get("bank", 0) > 0:
         print(f"Kasa   : {result['bank']:.1f} M TL")

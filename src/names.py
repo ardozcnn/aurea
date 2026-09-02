@@ -112,6 +112,83 @@ def normalize_name(name: str) -> str:
     return s
 
 
+_CLUB_GENERIC_TOKENS = frozenset(
+    {
+        "fk",
+        "sk",
+        "jk",
+        "as",
+        "ac",
+        "fc",
+        "cf",
+        "afc",
+        "futbol",
+        "kulubu",
+        "kulup",
+        "klubu",
+        "spor",
+        "sportif",
+        "faaliyetler",
+        "istanbul",
+        "takimi",
+    }
+)
+
+# Sponsor ve ek takıları (Beşiktaş JK, Sipay Bodrum FK, Çaykur Rizespor)
+# tek bir kulüp anahtarına indirger. Uzun ad önce gelmeli.
+_CLUB_CANON = (
+    "adana demirspor",
+    "galatasaray",
+    "fenerbahce",
+    "besiktas",
+    "trabzonspor",
+    "basaksehir",
+    "genclerbirligi",
+    "kasimpasa",
+    "goztepe",
+    "rizespor",
+    "samsunspor",
+    "kocaelispor",
+    "konyaspor",
+    "antalyaspor",
+    "alanyaspor",
+    "kayserispor",
+    "gaziantep",
+    "eyupspor",
+    "karagumruk",
+    "bodrum",
+    "ankaragucu",
+    "sivasspor",
+    "hatayspor",
+    "amed",
+    "corum",
+    "erzurumspor",
+    "pendikspor",
+    "istanbulspor",
+    "umraniyespor",
+    "giresunspor",
+    "bandirmaspor",
+    "sakaryaspor",
+    "boluspor",
+    "manisa",
+    "kecioren",
+    "altay",
+)
+
+
+def club_key(name: str) -> str:
+    """Kulüp adını tek anahtara indirger: 'Beşiktaş JK' -> 'besiktas'."""
+    n = normalize_name(name)
+    if not n:
+        return ""
+    tokens = [t for t in n.split() if t not in _CLUB_GENERIC_TOKENS]
+    stripped = " ".join(tokens) or n
+    for canon in _CLUB_CANON:
+        if canon in stripped:
+            return canon
+    return stripped
+
+
 def name_variants(name: str) -> list[str]:
     """Uzun resmi addan arama / eşleşme varyantları."""
     n = normalize_name(name)

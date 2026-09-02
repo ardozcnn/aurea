@@ -515,13 +515,22 @@ def fotmob_rows_to_sofa_events(rows: list[dict[str, Any]]) -> list[dict[str, Any
                 stamp = int(datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp())
             except ValueError:
                 stamp = 0
-        events.append(
-            {
-                "startTimestamp": stamp,
-                "homeTeam": {"name": home},
-                "awayTeam": {"name": away},
-            }
-        )
+        mid = row.get("id") or row.get("matchId") or row.get("pageUrl")
+        try:
+            mid_n = int(mid)
+        except (TypeError, ValueError):
+            mid_n = None
+        event = {
+            "startTimestamp": stamp,
+            "homeTeam": {"name": home},
+            "awayTeam": {"name": away},
+        }
+        if mid_n is not None:
+            event["idFotmob"] = mid_n
+        odds_blob = row.get("odds") or row.get("bettingOdds") or row.get("prematchOdds")
+        if odds_blob:
+            event["odds"] = odds_blob
+        events.append(event)
     events.sort(key=lambda e: int(e.get("startTimestamp") or 0))
     return events
 

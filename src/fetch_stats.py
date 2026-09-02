@@ -16,6 +16,8 @@ from curl_cffi import requests as curl_requests
 
 from .config import (
     CACHE_DIR,
+    FIXTURE_ATTACK_CEILING,
+    FIXTURE_ATTACK_FLOOR,
     FIXTURE_CS_CEILING,
     FIXTURE_CS_FLOOR,
     FORM_MATCHES,
@@ -24,7 +26,7 @@ from .config import (
     TEAM_CS_PRIOR_MATCHES,
     is_quiet,
 )
-from .names import normalize_name
+from .names import club_key, normalize_name
 from .team_model import (
     PREV_SEASON_WEIGHT,
     blend_ratings,
@@ -246,7 +248,7 @@ def fetch_standings_teams(season_id: int) -> list[dict[str, Any]]:
         data = sofa_get(
             f"/unique-tournament/{UNIQUE_TOURNAMENT_ID}/season/{season_id}/standings/total",
             cache_key=f"sofa_standings_{season_id}",
-            max_age_hours=12,
+            max_age_hours=4,
         )
     except SofaNotFound:
         return []
@@ -270,7 +272,7 @@ def fetch_standings_rows(season_id: int) -> list[dict[str, Any]]:
         data = sofa_get(
             f"/unique-tournament/{UNIQUE_TOURNAMENT_ID}/season/{season_id}/standings/total",
             cache_key=f"sofa_standings_{season_id}",
-            max_age_hours=12,
+            max_age_hours=4,
         )
     except SofaNotFound:
         return []
@@ -300,6 +302,94 @@ def fetch_upcoming_events(season_id: int, max_pages: int = 4) -> list[dict[str, 
     return events
 
 
+def _event_id(event: dict[str, Any]) -> int | None:
+    for key in ("id", "eventId", "idFotmob", "matchId"):
+        raw = event.get(key)
+        if raw is None:
+            continue
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def fetch_event_odds(event_id: int) -> dict[str, Any] | None:
+    """Sofascore bahis piyasası (bet365/provider 1); cache’li, uydurma yok."""
+    from .odds import parse_odds_blob
+
+    for path, cache in (
+        (f"/event/{event_id}/odds/1/all", f"sofa_odds_all_{event_id}"),
+        (f"/event/{event_id}/odds/1/featured", f"sofa_odds_feat_{event_id}"),
+    ):
+        try:
+            data = sofa_get(path, cache_key=cache, max_age_hours=6, delay=0.2)
+        except SofaNotFound:
+            continue
+        except Exception:
+            continue
+        parsed = parse_odds_blob(data)
+        if parsed:
+            parsed["source"] = "sofascore"
+            parsed["event_id"] = event_id
+            return parsed
+    return None
+
+
+def fetch_fotmob_match_odds(match_id: int) -> dict[str, Any] | None:
+    from .odds import parse_odds_blob
+
+    try:
+        from .fetch_fotmob import _get_json
+
+        data = _get_json(
+            f"matchDetails?matchId={match_id}",
+            f"odds_fm_{match_id}",
+            6.0,
+        )
+    except Exception:
+        return None
+    parsed = parse_odds_blob(data)
+    if parsed:
+        parsed["source"] = "fotmob"
+        parsed["event_id"] = match_id
+        return parsed
+    return None
+
+
+def attach_odds_to_events(events: list[dict[str, Any]], *, limit: int = 12) -> dict[tuple[str, str], dict[str, Any]]:
+    """Bu haftanın maçları için gerçek kote. Başarısız olursa o maç atlanır."""
+    from .odds import apply_gs_favorite_override, parse_odds_blob
+
+    by_pair: dict[tuple[str, str], dict[str, Any]] = {}
+    fetched = 0
+    for event in events or []:
+        home = str((event.get("homeTeam") or {}).get("name") or "")
+        away = str((event.get("awayTeam") or {}).get("name") or "")
+        home_key = club_key(home)
+        away_key = club_key(away)
+        if not home_key or not away_key:
+            continue
+        parsed = parse_odds_blob(event)
+        if parsed is None and fetched < limit:
+            eid = _event_id(event)
+            if eid is not None:
+                if event.get("idFotmob") and not event.get("id"):
+                    parsed = fetch_fotmob_match_odds(eid)
+                else:
+                    parsed = fetch_event_odds(eid)
+                    if parsed is None and event.get("idFotmob"):
+                        parsed = fetch_fotmob_match_odds(int(event["idFotmob"]))
+                fetched += 1
+        market = apply_gs_favorite_override(parsed, home, away)
+        if market:
+            market["home"] = home
+            market["away"] = away
+            by_pair[(home_key, away_key)] = market
+    return by_pair
+
+
+
 def next_matchweek_fixtures(season_id: int) -> list[dict[str, str]]:
     """Bir kulübün ikinci maçı gelene kadar sıradaki maç haftasını sun."""
     events = fetch_upcoming_events(season_id)
@@ -316,9 +406,9 @@ def next_matchweek_fixtures(season_id: int) -> list[dict[str, str]]:
         away = str((event.get("awayTeam") or {}).get("name") or "")
         if not home or not away:
             continue
-        if normalize_name(home) in seen_teams or normalize_name(away) in seen_teams:
+        if club_key(home) in seen_teams or club_key(away) in seen_teams:
             break
-        seen_teams.update((normalize_name(home), normalize_name(away)))
+        seen_teams.update((club_key(home), club_key(away)))
         fixtures.append(
             {
                 "home": home,
@@ -329,34 +419,42 @@ def next_matchweek_fixtures(season_id: int) -> list[dict[str, str]]:
     return fixtures
 
 
-def build_fixture_context(
-    upcoming_season_id: int,
-    strength_season_id: int,
-    *,
-    fallback_strength_season_id: int | None = None,
-    prefer_fallback: bool = False,
-) -> dict[str, dict[str, Any]]:
-    """Gelecek 3 maç haftası + Poisson hücum/savunma (standings yedek)."""
-    primary_id = (
-        fallback_strength_season_id
-        if prefer_fallback and fallback_strength_season_id
-        else strength_season_id
-    )
-    rows = fetch_standings_rows(primary_id)
-    if (
-        not prefer_fallback
-        and fallback_strength_season_id
-        and fallback_strength_season_id != primary_id
-    ):
-        played = sum(float(row.get("matches") or 0) for row in rows)
-        teams = len(rows)
-        if teams == 0 or (teams > 0 and played / teams < 4.0):
-            rows = fetch_standings_rows(fallback_strength_season_id)
+def _table_from_standings(rows: list[dict[str, Any]]) -> dict[str, dict[str, float]]:
+    ranked: list[tuple[float, float, float, str, float, float, float, int]] = []
+    for row in rows or []:
+        team = row.get("team") or {}
+        key = club_key(str(team.get("name") or ""))
+        if not key:
+            continue
+        matches_n = float(row.get("matches") or 0)
+        gf = float(row.get("scoresFor") or 0)
+        ga = float(row.get("scoresAgainst") or 0)
+        points = float(row.get("points") or 0)
+        try:
+            pos_n = int(row.get("position") or 0)
+        except (TypeError, ValueError):
+            pos_n = 0
+        ranked.append((points, gf - ga, gf, key, matches_n, gf, ga, pos_n))
+    ranked.sort(reverse=True)
+    n_teams = len(ranked)
+    table: dict[str, dict[str, float]] = {}
+    for i, (points, _gd, _gfs, key, matches_n, gf, ga, pos_n) in enumerate(ranked, 1):
+        table[key] = {
+            "pos": float(pos_n if pos_n > 0 else i),
+            "n": float(n_teams),
+            "gf_pg": (gf / matches_n) if matches_n else 0.0,
+            "ga_pg": (ga / matches_n) if matches_n else 0.0,
+            "points": points,
+        }
+    return table
+
+
+def _metrics_from_standings_rows(rows: list[dict[str, Any]]) -> tuple[dict[str, dict[str, float]], float, float]:
     metrics: dict[str, dict[str, float]] = {}
     total_goals = total_matches = 0.0
-    for row in rows:
+    for row in rows or []:
         team = row.get("team") or {}
-        key = normalize_name(str(team.get("name") or ""))
+        key = club_key(str(team.get("name") or ""))
         matches_n = float(row.get("matches") or 0)
         if not key or matches_n <= 0:
             continue
@@ -365,9 +463,74 @@ def build_fixture_context(
         metrics[key] = {"gf": gf / matches_n, "ga": ga / matches_n}
         total_goals += gf
         total_matches += matches_n
+    return metrics, total_goals, total_matches
 
-    league_goal_rate = total_goals / total_matches if total_matches else 1.35
-    standings_ratings = ratings_from_standings(metrics, league_goal_rate=league_goal_rate)
+
+def _rows_played(rows: list[dict[str, Any]]) -> float:
+    return sum(float(row.get("matches") or 0) for row in rows or [])
+
+
+def pick_table_standings(
+    current_rows: list[dict[str, Any]],
+    prev_rows: list[dict[str, Any]] | None = None,
+) -> tuple[list[dict[str, Any]], str]:
+    """Puan durumu her zaman bu sezon. Sezon başlamadıysa önceki yedek."""
+    if _rows_played(current_rows) > 0:
+        return current_rows, "current"
+    if prev_rows and _rows_played(prev_rows) > 0:
+        return prev_rows, "previous"
+    return current_rows or prev_rows or [], "current"
+
+
+def build_fixture_context(
+    upcoming_season_id: int,
+    strength_season_id: int,
+    *,
+    fallback_strength_season_id: int | None = None,
+    prefer_fallback: bool = False,
+) -> dict[str, dict[str, Any]]:
+    """Gelecek 3 maç haftası + Poisson hücum/savunma.
+
+    Puan durumu (sıra, GF/GA) mevcut sezondan okunur. Önceki sezon yalnızca
+    Poisson geçmişine ve sezon hiç başlamadıysa tablo yedeğine girer.
+    prefer_fallback tabloyu değiştirmez; erken sezonda Poisson ağırlığını düşürür.
+    """
+    current_rows = fetch_standings_rows(strength_season_id)
+    prev_rows: list[dict[str, Any]] = []
+    if fallback_strength_season_id and fallback_strength_season_id != strength_season_id:
+        prev_rows = fetch_standings_rows(fallback_strength_season_id)
+
+    table_rows, table_src = pick_table_standings(current_rows, prev_rows)
+    table = _table_from_standings(table_rows)
+    if table:
+        _log(f"  Puan durumu: {table_src} sezon, {len(table)} takım.")
+
+    metrics_current, cur_goals, cur_matches = _metrics_from_standings_rows(current_rows)
+    metrics_prev, prev_goals, prev_matches = _metrics_from_standings_rows(prev_rows)
+    if metrics_current:
+        metrics, total_goals, total_matches = metrics_current, cur_goals, cur_matches
+        league_goal_rate = total_goals / total_matches if total_matches else 1.35
+        current_ratings = ratings_from_standings(metrics_current, league_goal_rate=league_goal_rate)
+        if metrics_prev and _rows_played(current_rows) / max(len(current_rows), 1) < 8:
+            prev_rate = prev_goals / prev_matches if prev_matches else league_goal_rate
+            prev_ratings = ratings_from_standings(metrics_prev, league_goal_rate=prev_rate)
+            played_avg = _rows_played(current_rows) / max(len(current_rows), 1)
+            # 3 maçta bile tablo bu sezonundur; önceki sezon sadece yumuşatır.
+            standings_ratings = blend_ratings(
+                current_ratings,
+                prev_ratings,
+                current_weight=min(0.82, 0.45 + played_avg / 10.0),
+            )
+        else:
+            standings_ratings = current_ratings
+    elif metrics_prev:
+        metrics = metrics_prev
+        league_goal_rate = prev_goals / prev_matches if prev_matches else 1.35
+        standings_ratings = ratings_from_standings(metrics_prev, league_goal_rate=league_goal_rate)
+    else:
+        metrics = {}
+        league_goal_rate = 1.35
+        standings_ratings = ratings_from_standings({}, league_goal_rate=league_goal_rate)
 
     model_matches: list[dict[str, Any]] = []
     try:
@@ -404,18 +567,25 @@ def build_fixture_context(
         except Exception:
             events = []
     weeks = group_events_by_matchweek(events, weeks=HORIZON_WEEKS)
+    first_week = weeks[0] if weeks else []
+    odds_map = attach_odds_to_events(first_week, limit=12)
+    if odds_map:
+        _log(f"  Bahis oranları: {len(odds_map)} maç (Sofascore/FotMob, cache’li).")
     context: dict[str, dict[str, Any]] = {}
 
-    def pack_event(team: str, opponent: str, home: bool) -> dict[str, Any]:
-        pack = fixture_pack(ratings, team, opponent, home=home)
+    def pack_event(team: str, opponent: str, home: bool, market: dict[str, Any] | None = None) -> dict[str, Any]:
+        pack = fixture_pack(ratings, team, opponent, home=home, market=market)
         if not pack.get("attack_mult"):
-            opp = metrics.get(normalize_name(opponent))
+            opp = metrics.get(club_key(opponent))
             if opp:
                 opponent_defence = opp["ga"] / league_goal_rate
                 opponent_attack = opp["gf"] / league_goal_rate
             else:
                 opponent_defence = opponent_attack = 1.0
-            pack["attack_mult"] = max(0.78, min(1.22, opponent_defence * (1.06 if home else 0.94)))
+            pack["attack_mult"] = max(
+                FIXTURE_ATTACK_FLOOR,
+                min(FIXTURE_ATTACK_CEILING, opponent_defence * (1.08 if home else 0.92)),
+            )
             pack["cs_mult"] = max(
                 FIXTURE_CS_FLOOR,
                 min(
@@ -423,6 +593,30 @@ def build_fixture_context(
                     (1.0 / max(opponent_attack, 0.55)) * (1.08 if home else 0.92),
                 ),
             )
+        own = table.get(club_key(team), {})
+        opp = table.get(club_key(opponent), {})
+        n_teams = float(len(table) or 18)
+        # Tabloda satırı olmayan kulüp = yeni yükselen; en alt sıra sayılır.
+        if own:
+            pack["table_pos"] = own.get("pos")
+            pack["table_n"] = own.get("n")
+            pack["team_gf_pg"] = own.get("gf_pg")
+            pack["team_ga_pg"] = own.get("ga_pg")
+        elif table:
+            pack["table_pos"] = n_teams
+            pack["table_n"] = n_teams
+            pack["promoted"] = True
+        if opp:
+            pack["opp_table_pos"] = opp.get("pos")
+            pack["opp_gf_pg"] = opp.get("gf_pg")
+            pack["opp_ga_pg"] = opp.get("ga_pg")
+        elif table:
+            pack["opp_table_pos"] = n_teams
+            pack["opp_promoted"] = True
+        # Bu haftanın tablosunda üst sıra rakibe geçen sezon "kolay CS" etiketi yapıştırma.
+        opp_pos = pack.get("opp_table_pos")
+        if str(pack.get("match_kind") or "") == "kolay" and opp_pos and float(opp_pos) <= 6:
+            pack["match_kind"] = "denk"
         return pack
 
     for week_idx, bucket in enumerate(weeks):
@@ -432,10 +626,12 @@ def build_fixture_context(
             if not home or not away:
                 continue
             for team, opponent, is_home in ((home, away, True), (away, home, False)):
-                key = normalize_name(team)
+                key = club_key(team)
                 if not key:
                     continue
-                pack = pack_event(team, opponent, is_home)
+                pair = (club_key(home), club_key(away))
+                market = odds_map.get(pair) if week_idx == 0 else None
+                pack = pack_event(team, opponent, is_home, market=market)
                 pack["week"] = week_idx
                 if key not in context:
                     context[key] = {**pack, "horizon": [pack]}
@@ -1164,13 +1360,14 @@ def load_dual_season_stats(
     if meta["early_season"] and not meta["preseason"]:
         meta["notes"].append(
             f"Erken sezon: mevcut sezon medyan maç ~{maturity_apps:.1f}; "
-            "rakip gücü için önceki sezon standings tercih edilir."
+            "puan durumu bu sezon; önceki sezon yalnızca Poisson geçmişine "
+            "ve rating yumuşatmasına girer."
         )
 
     fixture_context: dict[str, dict[str, Any]] = {}
     try:
         upcoming_sid = resolve_season_id(requested_start)
-        strength_sid = resolve_season_id(current_start)
+        strength_sid = resolve_season_id(requested_start)
         fallback_sid = resolve_season_id(requested_start - 1)
         fixture_context = build_fixture_context(
             upcoming_sid,
@@ -1179,14 +1376,16 @@ def load_dual_season_stats(
             prefer_fallback=bool(meta["early_season"]),
         )
         if fixture_context:
-            strength_note = (
-                f"önceki sezon güç ({season_label(requested_start - 1)})"
+            table_note = f"puan durumu {season_label(requested_start)}"
+            poisson_note = (
+                f"Poisson hücum/savunma (önceki sezon maçları karışık, "
+                f"{season_label(requested_start - 1)})"
                 if meta["early_season"]
-                else f"mevcut sezon güç ({season_label(current_start)})"
+                else f"Poisson hücum/savunma ({season_label(current_start)})"
             )
             meta["notes"].append(
                 f"Haftalık rakip/iç-dış saha: {len(fixture_context)} takım; "
-                f"{strength_note}; Poisson hücum/savunma + 3 haftalık ufuk."
+                f"{table_note}; {poisson_note} + 3 haftalık ufuk."
             )
     except Exception as exc:
         meta["notes"].append(f"Fikstür etkisi alınamadı ({exc}); nötr rakip varsayıldı.")

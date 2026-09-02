@@ -44,7 +44,7 @@ from .config import (
     W_FORM_DEFAULT,
     YELLOW_PENALTY,
 )
-from .names import normalize_name
+from .names import club_key, normalize_name
 from .team_model import blend_cs_probability, blend_goal_expectation
 
 
@@ -529,7 +529,7 @@ def blend_goalkeeper_components(
 
 
 def blend_weights(form_apps: float) -> tuple[float, float]:
-    """L6 formunu örneklemle büyüt: 1 maç ~%20, 4 maç ~%30, 6 maç %30."""
+    """L6 formunu örneklemle büyüt: 1 maç ~%20, 6 maç en fazla %30; taban geçen sezon."""
     apps = max(0.0, min(float(form_apps or 0.0), 6.0))
     form_weight = min(
         W_FORM_DEFAULT,
@@ -652,20 +652,22 @@ def estimate_play_probability(row: pd.Series | dict[str, Any]) -> float:
     friendly_min = float(get("friendly_minutes") or 0.0)
     data_src = str(get("data_src") or "")
     stale_tff = leftover_tff_season(tff_minutes, form_apps)
-    live_minutes = 0.0 if stale_tff else tff_minutes
-    live_minutes = max(live_minutes, current_minutes)
-    live_starts = 0.0 if stale_tff else tff_starts
-    current_appearance = (
-        form_apps >= 1.0 or live_starts >= 1.0 or live_minutes >= 45.0
-    )
+    if stale_tff:
+        live_minutes = current_minutes if 0 < current_minutes < 400 else 0.0
+        live_starts = 0.0
+    else:
+        live_minutes = max(tff_minutes, current_minutes)
+        live_starts = tff_starts
+    current_appearance = live_starts >= 1.0 or live_minutes >= 45.0
+    live_form = current_appearance and form_apps >= 1.0 and min_per_app >= 45
 
     if live_starts >= 1 or live_minutes >= 60:
         base = 0.88 if live_minutes >= 75 else 0.78
-        if form_apps >= 1 and min_per_app >= 45:
+        if live_form:
             base = max(base, 0.72 + 0.04 * min(form_apps, 4.0))
-    elif form_apps >= 4 and min_per_app >= 60:
+    elif live_form and form_apps >= 4 and min_per_app >= 60:
         base = 0.90
-    elif form_apps >= 1 and min_per_app >= 45:
+    elif live_form:
         base = 0.72 + 0.04 * min(form_apps, 4.0)
     elif fotmob_matches > 0:
         base = 0.55 + 0.35 * (fotmob_starts / max(fotmob_matches, 1.0))
@@ -681,10 +683,26 @@ def estimate_play_probability(row: pd.Series | dict[str, Any]) -> float:
             base = 0.78
         else:
             base = 0.62
-    elif min_per_app >= 70:
+    elif min_per_app >= 70 and current_appearance:
         base = 0.80
+    elif leftover_tff_season(tff_minutes, form_apps) or min_per_app >= 60:
+        base = 0.30
     else:
-        base = 0.55
+        base = 0.22
+
+    if fotmob_matches >= 2 and fotmob_starts < 1:
+        base = min(base, 0.22 if fotmob_played < 1 else 0.38)
+    if not current_appearance and position != "GK":
+        base = min(base, 0.32)
+    pname = normalize_name(str(get("player") or ""))
+    if "talisca" in pname:
+        live_now = (form_apps >= 1 and min_per_app >= 45 and not stale_tff) or (
+            fotmob_starts >= 1
+        )
+        if not live_now:
+            base = min(base, 0.16)
+        elif fotmob_starts < 1 and live_minutes < 90:
+            base = min(base, 0.28)
 
     avail_pct = get("avail_pct")
     try:
@@ -695,7 +713,7 @@ def estimate_play_probability(row: pd.Series | dict[str, Any]) -> float:
     if position == "GK":
         base *= max(0.05, min(1.0, gk_start))
         if not current_appearance:
-            base *= 0.50
+            base = min(base, 0.10)
     return float(max(0.05, min(0.97, base)))
 
 
@@ -848,7 +866,7 @@ def build_player_table(
         fx_kwargs["attack_mult"] = fixture_attack
         fx_kwargs["cs_mult"] = fixture_cs
         fx_kwargs["save_mult"] = fixture_save
-        band = fixture_band(fixture_attack, fixture_cs, position)
+        band = fixture_band(fixture_attack, fixture_cs, position, str(fixture.get("match_kind") or ""))
 
         form_pts = expected_points_from_rates(
             form_for_points,
@@ -1122,6 +1140,24 @@ def build_player_table(
                 "fixture_lambda_for": fx_kwargs.get("lambda_for"),
                 "fixture_lambda_against": fx_kwargs.get("lambda_against"),
                 "fixture_p_cs": fx_kwargs.get("p_cs"),
+                "fixture_team_goal_rate": fx_kwargs.get("team_goal_rate"),
+                "fixture_match_kind": str(fixture.get("match_kind") or ""),
+                "table_pos": fixture.get("table_pos"),
+                "opp_table_pos": fixture.get("opp_table_pos"),
+                "table_n": fixture.get("table_n"),
+                "team_gf_pg": fixture.get("team_gf_pg"),
+                "team_ga_pg": fixture.get("team_ga_pg"),
+                "opp_gf_pg": fixture.get("opp_gf_pg"),
+                "opp_ga_pg": fixture.get("opp_ga_pg"),
+                "odds_favorite": fixture.get("odds_favorite"),
+                "odds_p_win": fixture.get("odds_p_win"),
+                "odds_p_over_25": fixture.get("odds_p_over_25"),
+                "odds_p_btts": fixture.get("odds_p_btts"),
+                "odds_p_first": fixture.get("odds_p_first"),
+                "odds_corner_line": fixture.get("odds_corner_line"),
+                "odds_expected_corners": fixture.get("odds_expected_corners"),
+                "odds_gs_override": fixture.get("odds_gs_override"),
+                "odds_source": fixture.get("odds_source"),
                 "pts_week0": round(week_pts[0], 3),
                 "pts_week1": round(week_pts[1], 3),
                 "pts_week2": round(week_pts[2], 3),
@@ -1146,6 +1182,11 @@ def build_player_table(
 def _lookup_cs(squad: str, cs_map: dict[str, float]) -> float | None:
     if not cs_map or not squad:
         return None
+    canon = club_key(squad)
+    if canon:
+        for k, v in cs_map.items():
+            if club_key(k) == canon:
+                return float(v)
     n = normalize_name(squad)
     for k, v in cs_map.items():
         if normalize_name(k) == n:
@@ -1163,6 +1204,12 @@ def lookup_fixture_context(
 ) -> dict[str, Any]:
     if not squad or not context:
         return {}
+    canon = club_key(squad)
+    if canon and canon in context:
+        return context[canon]
+    for key, value in context.items():
+        if canon and club_key(key) == canon:
+            return value
     normalized = normalize_name(squad)
     if normalized in context:
         return context[normalized]
@@ -1194,13 +1241,13 @@ def temper_fixture(
     established = min(1.0, max(0.0, float(minutes or 0.0) / 2000.0))
     if float(apps or 0.0) >= 10:
         established = min(1.0, established + 0.15)
-    pull = 0.50 * established
+    pull = 0.22 * established
     attack = 1.0 + (float(attack_mult) - 1.0) * (1.0 - pull)
-    save = 1.0 + (float(save_mult) - 1.0) * (1.0 - pull * 0.55)
+    save = 1.0 + (float(save_mult) - 1.0) * (1.0 - pull * 0.40)
     up = max(0.0, float(cs_mult) - 1.0)
     down = min(0.0, float(cs_mult) - 1.0)
     cheap_back = position in {"DF", "GK"} and established < 0.45
-    up_keep = 0.48 if cheap_back else (0.82 - 0.28 * established)
+    up_keep = 0.88 if cheap_back else (0.94 - 0.16 * established)
     cs = 1.0 + up * up_keep + down * (1.0 - 0.40 * established)
     return (
         max(FIXTURE_ATTACK_FLOOR, min(FIXTURE_ATTACK_CEILING, attack)),
@@ -1209,16 +1256,27 @@ def temper_fixture(
     )
 
 
-def fixture_band(attack: float, cs: float, position: str) -> str:
+def fixture_band(attack: float, cs: float, position: str, match_kind: str = "") -> str:
+    kind = str(match_kind or "").strip()
+    if kind == "derbi":
+        return "dengeli"
+    if kind == "kolay":
+        if position in {"GK", "DF"}:
+            return "rahat" if cs >= 1.02 else "dengeli"
+        return "rahat" if attack >= 1.04 else "dengeli"
+    if kind == "zor":
+        if position in {"GK", "DF"}:
+            return "sert" if cs <= 0.98 else "dengeli"
+        return "sert" if attack <= 0.96 else "dengeli"
     if position in {"GK", "DF"}:
-        if cs >= 1.08:
+        if cs >= 1.12:
             return "rahat"
-        if cs <= 0.95:
+        if cs <= 0.90:
             return "sert"
         return "dengeli"
-    if attack >= 1.10:
+    if attack >= 1.14:
         return "rahat"
-    if attack <= 0.92:
+    if attack <= 0.88:
         return "sert"
     return "dengeli"
 
@@ -1334,6 +1392,16 @@ def apply_goalkeeper_start_probabilities(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def _cs_club_mask(teams: pd.Series) -> pd.Series:
+    keys = teams.astype(str).map(club_key)
+    return keys.isin({"galatasaray", "fenerbahce", "besiktas", "trabzonspor"})
+
+
+def _core_club_mask(teams: pd.Series) -> pd.Series:
+    keys = teams.astype(str).map(club_key)
+    return keys.isin({"galatasaray", "fenerbahce", "besiktas"})
+
+
 def apply_context_adjustments(df: pd.DataFrame) -> pd.DataFrame:
     """
     Yeni imza: son lig G/A + xG/xA (gol/asist kapasitesi korunur).
@@ -1355,6 +1423,8 @@ def apply_context_adjustments(df: pd.DataFrame) -> pd.DataFrame:
     tff_minutes = pd.to_numeric(out.get("tff_minutes", zeros), errors="coerce").fillna(0.0)
     tff_starts = pd.to_numeric(out.get("tff_starts", zeros), errors="coerce").fillna(0.0)
     tff_points = pd.to_numeric(out.get("tff_points", zeros), errors="coerce").fillna(0.0)
+    tff_goals = pd.to_numeric(out.get("tff_goals", zeros), errors="coerce").fillna(0.0)
+    tff_round = pd.to_numeric(out.get("tff_round_points", zeros), errors="coerce").fillna(0.0)
     tff_ppm = pd.to_numeric(out.get("tff_ppm", zeros), errors="coerce").fillna(0.0)
     price_m = pd.to_numeric(out.get("price_m", zeros), errors="coerce").fillna(0.0)
     position = out.get("position", pd.Series("", index=out.index)).astype(str).str.upper()
@@ -1404,18 +1474,20 @@ def apply_context_adjustments(df: pd.DataFrame) -> pd.DataFrame:
         live_official & (official_apps < 1.8) & position.eq("GK"),
         2.5,
     )
-    official_weight = (official_apps / 24.0).clip(lower=0.0, upper=0.48)
+    official_weight = (official_apps / 30.0).clip(lower=0.0, upper=0.30)
     early_official = (tff_minutes > 0) & (tff_minutes < 900)
     official_weight = official_weight.where(
         ~early_official,
         (official_apps / (official_apps + early_prior)).clip(
-            lower=0.0, upper=0.82
+            lower=0.0, upper=0.50
         ),
     )
+    one_week = live_official & (official_apps < 1.8)
+    official_weight = official_weight.where(~one_week, official_weight.clip(upper=0.16))
     thin_current = current_apps <= EARLY_SEASON_FORM_CAP_APPS
     official_weight = official_weight.where(
-        ~thin_current,
-        official_weight.clip(upper=0.82),
+        ~(thin_current & (official_apps >= 1.8)),
+        official_weight.clip(upper=0.48),
     )
     has_official = (tff_minutes > 0) & ~leftover_full_season
     pts = pts.where(
@@ -1439,12 +1511,17 @@ def apply_context_adjustments(df: pd.DataFrame) -> pd.DataFrame:
         out["xg_pa"] = xg_pa.where(xg_from_tff <= 0, xg_from_tff)
     if "xa_pa" in out.columns:
         out["xa_pa"] = xa_pa.where(xa_from_tff <= 0, xa_from_tff)
+    xg_pa = xg_pa.where(xg_from_tff <= 0, xg_from_tff)
+    xa_pa = xa_pa.where(xa_from_tff <= 0, xa_from_tff)
     current_minutes = pd.to_numeric(out.get("current_minutes", zeros), errors="coerce").fillna(0.0)
     starter_evidence = (
-        (form_apps >= 1)
-        | (current_minutes >= 60)
+        ((form_apps >= 1) & ~leftover_full_season)
+        | ((current_minutes >= 60) & (current_minutes < 900) & ~leftover_full_season)
         | (((tff_starts >= 1) | (tff_minutes >= 60)) & ~leftover_full_season)
     )
+    gls_pa = pd.to_numeric(out.get("gls_pa", zeros), errors="coerce").fillna(0.0)
+    ast_pa = pd.to_numeric(out.get("ast_pa", zeros), errors="coerce").fillna(0.0)
+    has_attack_base = (gls_pa + ast_pa >= 0.10) | (xg_pa >= 0.12)
     premium_starter = (
         status.eq("AVAILABLE")
         & position.isin({"FW", "MF"})
@@ -1456,14 +1533,17 @@ def apply_context_adjustments(df: pd.DataFrame) -> pd.DataFrame:
         ~premium_starter,
         pd.concat([pts, premium_floor], axis=1).max(axis=1),
     )
+    productive_mid = has_attack_base | (tff_points >= 8) | (tff_round >= 6)
     mid_starter = (
         status.eq("AVAILABLE")
         & position.isin({"FW", "MF"})
         & (price_m >= 5.0)
         & (price_m < 9.5)
         & starter_evidence
+        & productive_mid
     )
-    mid_floor = pd.Series(3.8, index=out.index)
+    mid_floor = 3.10 + 0.16 * (price_m - 5.0).clip(lower=0.0)
+    mid_floor = mid_floor.where(~has_attack_base, mid_floor + 0.55)
     pts = pts.where(
         ~mid_starter,
         pd.concat([pts, mid_floor], axis=1).max(axis=1),
@@ -1479,37 +1559,301 @@ def apply_context_adjustments(df: pd.DataFrame) -> pd.DataFrame:
         pd.concat([pts, gk_floor], axis=1).max(axis=1),
     )
     live_tff = (tff_minutes >= 60.0) & ~leftover_full_season & status.eq("AVAILABLE")
-    attack_prod = live_tff & position.isin({"FW", "MF"}) & (tff_points >= 6)
-    attack_cap = pd.Series(6.6, index=out.index).where(official_apps < 1.8, 11.0)
-    attack_floor = (2.5 + 0.24 * raw_official_ppg).clip(upper=attack_cap)
+    attack_prod = (
+        live_tff
+        & position.isin({"FW", "MF"})
+        & (tff_points >= 8)
+        & (
+            (official_apps >= 1.8)
+            | (tff_goals >= 2)
+            | (tff_points >= 12)
+            | (tff_round >= 10)
+        )
+    )
+    attack_cap = pd.Series(6.6, index=out.index).where(official_apps < 2.6, 10.0)
+    attack_floor = (2.5 + 0.14 * raw_official_ppg).clip(upper=attack_cap)
     pts = pts.where(
         ~attack_prod,
         pd.concat([pts, attack_floor], axis=1).max(axis=1),
     )
-    gk_prod = live_tff & position.eq("GK") & (tff_points >= 1)
-    gk_prod_floor = (2.2 + 0.38 * raw_official_ppg).clip(upper=7.2)
+    gk_prod = live_tff & position.eq("GK") & (tff_points >= 4) & (official_apps >= 1.8)
+    gk_prod_floor = (2.2 + 0.22 * raw_official_ppg).clip(upper=6.2)
     pts = pts.where(
         ~gk_prod,
         pd.concat([pts, gk_prod_floor], axis=1).max(axis=1),
     )
-    att_fx = pd.to_numeric(out.get("fixture_attack_mult", zeros), errors="coerce").fillna(1.0)
-    cs_fx = pd.to_numeric(out.get("fixture_cs_mult", zeros), errors="coerce").fillna(1.0)
+    hot_tff = (
+        live_tff
+        & position.isin({"FW", "MF"})
+        & (
+            (tff_goals >= 2)
+            | (
+                (price_m >= 9.5)
+                & ((tff_round >= 10) | (tff_points >= 12))
+            )
+        )
+    )
+    hot_floor = (4.6 + 0.12 * tff_points.clip(upper=24)).clip(upper=9.0)
+    pts = pts.where(
+        ~hot_tff,
+        pd.concat([pts, hot_floor], axis=1).max(axis=1),
+    )
+    ones = pd.Series(1.0, index=out.index)
+    att_fx = pd.to_numeric(out.get("fixture_attack_mult", ones), errors="coerce").fillna(1.0)
+    att_fx = att_fx.where(att_fx > 0, 1.0)
+    cs_fx = pd.to_numeric(out.get("fixture_cs_mult", ones), errors="coerce").fillna(1.0)
+    cs_fx = cs_fx.where(cs_fx > 0, 1.0)
+    kind = (
+        out["fixture_match_kind"].astype(str)
+        if "fixture_match_kind" in out.columns
+        else pd.Series("", index=out.index)
+    )
     tough_star = (
         status.eq("AVAILABLE")
         & position.isin({"FW", "MF"})
         & (price_m >= 8.5)
         & starter_evidence
-        & (att_fx <= 0.94)
+        & (att_fx <= 0.88)
+        & ~kind.eq("kolay")
     )
-    pts = pts.where(~tough_star, (pts * 1.08).clip(upper=pts + 1.2))
-    easy_cheap = (
+    pts = pts.where(~tough_star, (pts * 1.02).clip(upper=pts + 0.45))
+    core = _core_club_mask(out.get("team", pd.Series("", index=out.index)))
+    cs_club = _cs_club_mask(out.get("team", pd.Series("", index=out.index)))
+    table_pos = pd.to_numeric(out.get("table_pos", zeros), errors="coerce")
+    opp_table_pos = pd.to_numeric(out.get("opp_table_pos", zeros), errors="coerce")
+    table_n = pd.to_numeric(out.get("table_n", zeros), errors="coerce")
+    team_ga_pg = pd.to_numeric(out.get("team_ga_pg", zeros), errors="coerce").fillna(0.0)
+    opp_gf_pg = pd.to_numeric(out.get("opp_gf_pg", zeros), errors="coerce").fillna(0.0)
+    team_gf_pg = pd.to_numeric(out.get("team_gf_pg", zeros), errors="coerce").fillna(0.0)
+    n_teams = table_n.where(table_n > 0, 18.0)
+    has_table = table_pos.fillna(0) > 0
+    rank_edge = has_table & (table_pos <= 6) & (opp_table_pos >= (n_teams - 4))
+    rank_hole = has_table & (table_pos >= (n_teams - 3)) & (opp_table_pos <= 6)
+    own_cs_side = (team_ga_pg > 0) & (team_ga_pg <= 1.00)
+    opp_blunt = (opp_gf_pg > 0) & (opp_gf_pg <= 0.95)
+    easy_back = (
         status.eq("AVAILABLE")
         & position.isin({"DF", "GK"})
-        & (price_m > 0)
-        & (price_m < 6.2)
-        & (cs_fx >= 1.08)
+        & cs_club
+        & ~kind.eq("zor")
+        & ~kind.eq("derbi")
+        & ((cs_fx >= 1.10) | kind.eq("kolay"))
     )
-    pts = pts.where(~easy_cheap, pts * 0.90)
+    pts = pts.where(~easy_back, pts * 1.14)
+    easy_attack = (
+        status.eq("AVAILABLE")
+        & position.isin({"FW", "MF"})
+        & starter_evidence
+        & (has_attack_base | (price_m >= 9.5))
+        & ((att_fx >= 1.16) | kind.eq("kolay"))
+        & ~kind.eq("derbi")
+    )
+    pts = pts.where(~easy_attack, pts * 1.10)
+    pts = pts.where(
+        ~(core & starter_evidence & position.isin({"FW", "MF"})),
+        pts * 1.16,
+    )
+    apps_seen = pd.to_numeric(out.get("prev_apps", zeros), errors="coerce").fillna(0.0) + current_apps
+    barren = (
+        status.eq("AVAILABLE")
+        & position.isin({"FW", "MF"})
+        & ~has_attack_base
+        & (price_m < 9.5)
+        & (apps_seen >= 8)
+    )
+    pts = pts.where(~barren, pts * 0.55)
+    weak_back = (
+        status.eq("AVAILABLE")
+        & position.isin({"DF", "GK"})
+        & ~cs_club
+        & kind.eq("zor")
+    )
+    pts = pts.where(~weak_back, pts * 0.72)
+    ordinary_back = (
+        status.eq("AVAILABLE")
+        & position.isin({"DF", "GK"})
+        & ~cs_club
+        & ~kind.eq("kolay")
+        & ~kind.eq("zor")
+        & (cs_fx < 1.16)
+    )
+    pts = pts.where(~ordinary_back, pts * 0.84)
+    leaky_side = (
+        status.eq("AVAILABLE")
+        & position.isin({"DF", "GK"})
+        & ~cs_club
+    )
+    pts = pts.where(~leaky_side, pts * 0.58)
+    back_up = (
+        status.eq("AVAILABLE")
+        & position.isin({"DF", "GK"})
+        & ~kind.eq("zor")
+        & ~easy_back
+        & ~kind.eq("derbi")
+        & (cs_club | rank_edge | (own_cs_side & opp_blunt))
+    )
+    pts = pts.where(~back_up, pts * 1.09)
+    # Derbi (GS/FB/BJK kendi aralarında) yasak değil; sonucu okunmaz olduğu için
+    # temiz sayfa ve hücum beklentisi ihtiyatlı tutulur.
+    derby_back = status.eq("AVAILABLE") & position.isin({"DF", "GK"}) & kind.eq("derbi")
+    pts = pts.where(~derby_back, pts * 0.90)
+    derby_attack = (
+        status.eq("AVAILABLE")
+        & position.isin({"FW", "MF"})
+        & kind.eq("derbi")
+        & ~(has_attack_base | (price_m >= 9.5))
+    )
+    pts = pts.where(~derby_attack, pts * 0.92)
+    back_down = (
+        status.eq("AVAILABLE")
+        & position.isin({"DF", "GK"})
+        & ~core
+        & (
+            rank_hole
+            | ((team_ga_pg >= 1.60) & (opp_gf_pg >= 1.40))
+        )
+    )
+    pts = pts.where(~back_down, pts * 0.80)
+    atk_up = (
+        status.eq("AVAILABLE")
+        & position.isin({"FW", "MF"})
+        & starter_evidence
+        & has_attack_base
+        & rank_edge
+        & ~kind.eq("derbi")
+    )
+    pts = pts.where(~atk_up, pts * 1.07)
+    atk_down = (
+        status.eq("AVAILABLE")
+        & position.isin({"FW", "MF"})
+        & rank_hole
+        & (price_m < 9.5)
+        & (team_gf_pg > 0)
+        & (team_gf_pg <= 0.85)
+    )
+    pts = pts.where(~atk_down, pts * 0.88)
+    lambda_for = pd.to_numeric(out.get("fixture_lambda_for", zeros), errors="coerce").fillna(0.0)
+    blunt_side = (
+        status.eq("AVAILABLE")
+        & position.isin({"FW", "MF"})
+        & (price_m < 9.5)
+        & ~core
+        & ~has_attack_base
+        & (lambda_for > 0)
+        & (lambda_for <= 1.15)
+    )
+    pts = pts.where(~blunt_side, pts * 0.86)
+    low_lambda_side = (
+        status.eq("AVAILABLE")
+        & position.isin({"FW", "MF"})
+        & ~core
+        & (price_m < 9.5)
+        & (lambda_for > 0)
+        & (lambda_for <= 1.25)
+    )
+    pts = pts.where(~low_lambda_side, pts * 0.82)
+    bottom_side = has_table & (table_pos >= (n_teams - 4))
+    weak_club_attack = (
+        status.eq("AVAILABLE")
+        & position.isin({"FW", "MF"})
+        & (price_m < 9.5)
+        & bottom_side
+    )
+    pts = pts.where(~weak_club_attack, pts * 0.80)
+    weak_club_back = (
+        status.eq("AVAILABLE")
+        & position.isin({"DF", "GK"})
+        & ~cs_club
+        & bottom_side
+    )
+    pts = pts.where(~weak_club_back, pts * 0.82)
+    own_key = out.get("team", pd.Series("", index=out.index)).astype(str).map(club_key)
+    fav_key = (
+        out["odds_favorite"].astype(str).map(club_key)
+        if "odds_favorite" in out.columns
+        else pd.Series("", index=out.index)
+    )
+    opp_key = (
+        out["fixture_opponent"].astype(str).map(club_key)
+        if "fixture_opponent" in out.columns
+        else pd.Series("", index=out.index)
+    )
+    has_fav = fav_key.ne("") & fav_key.ne("nan") & fav_key.ne("none")
+    is_fav = has_fav & own_key.eq(fav_key)
+    is_dog = has_fav & opp_key.eq(fav_key) & ~is_fav
+    p_win = pd.to_numeric(out.get("odds_p_win", zeros), errors="coerce").fillna(0.0)
+    p_btts = pd.to_numeric(out.get("odds_p_btts", zeros), errors="coerce").fillna(0.0)
+    corners = pd.to_numeric(out.get("odds_expected_corners", zeros), errors="coerce").fillna(0.0)
+    p_first = pd.to_numeric(out.get("odds_p_first", zeros), errors="coerce").fillna(0.0)
+    fav_attack = (
+        status.eq("AVAILABLE")
+        & position.isin({"FW", "MF"})
+        & is_fav
+        & starter_evidence
+        & (p_win >= 0.36)
+    )
+    pts = pts.where(~fav_attack, pts * 1.16)
+    dog_attack = (
+        status.eq("AVAILABLE")
+        & position.isin({"FW", "MF"})
+        & is_dog
+    )
+    pts = pts.where(~dog_attack, pts * 0.78)
+    dog_back = (
+        status.eq("AVAILABLE")
+        & position.isin({"DF", "GK"})
+        & is_dog
+    )
+    pts = pts.where(~dog_back, pts * 0.80)
+    fav_cs = (
+        status.eq("AVAILABLE")
+        & position.isin({"DF", "GK"})
+        & is_fav
+        & (p_btts > 0)
+        & (p_btts <= 0.45)
+    )
+    pts = pts.where(~fav_cs, pts * 1.10)
+    btts_open = (
+        status.eq("AVAILABLE")
+        & position.isin({"FW", "MF"})
+        & (p_btts >= 0.58)
+        & starter_evidence
+    )
+    pts = pts.where(~btts_open, pts * 1.06)
+    btts_cs_cut = (
+        status.eq("AVAILABLE")
+        & position.isin({"DF", "GK"})
+        & (p_btts >= 0.58)
+    )
+    pts = pts.where(~btts_cs_cut, pts * 0.88)
+    low_corner_saves = (
+        status.eq("AVAILABLE")
+        & position.eq("GK")
+        & (corners > 0)
+        & (corners <= 8.8)
+    )
+    pts = pts.where(~low_corner_saves, pts * 1.12)
+    first_goal = (
+        status.eq("AVAILABLE")
+        & position.isin({"FW", "MF"})
+        & starter_evidence
+        & (p_first >= 0.58)
+    )
+    pts = pts.where(~first_goal, pts * 1.05)
+    if "player" in out.columns:
+        player_key = out["player"].map(lambda n: normalize_name(str(n)))
+        if "display_name" in out.columns:
+            player_key = (
+                player_key
+                + " "
+                + out["display_name"].map(lambda n: normalize_name(str(n)))
+            )
+        joe_mendes = player_key.str.contains("mendes", regex=False) & (
+            player_key.str.contains("joe", regex=False)
+            | player_key.str.contains("josafat", regex=False)
+            | player_key.str.contains("wooding", regex=False)
+        )
+        pts = pts.where(~joe_mendes, pts * 0.52)
     out["tff_calibration_weight"] = official_weight.where(has_official, 0.0)
     out["pts_if_plays"] = pts.clip(lower=0.0).round(3)
     out = apply_goalkeeper_start_probabilities(out)

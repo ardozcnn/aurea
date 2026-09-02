@@ -206,14 +206,15 @@ def player_dossier(name: str, club: str | None = None) -> dict[str, Any] | None:
             return None
         return cached
     search = _get_json(f"search/suggest?term={quote(q)}")
+    if search is None:
+        return None
     hit = _pick_player(q, club, search)
     if not hit:
-        _set_cache(key, {"empty": True}, ttl=90 * 60)
+        _set_cache(key, {"empty": True}, ttl=20 * 60)
         return None
     player_id = str(hit.get("id") or "")
     payload = _get_json(f"playerData?id={player_id}")
     if not isinstance(payload, dict):
-        _set_cache(key, {"empty": True}, ttl=45 * 60)
         return None
     main = payload.get("mainLeague") or {}
     totals: dict[str, float] = {}

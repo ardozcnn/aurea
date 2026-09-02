@@ -310,14 +310,14 @@ function tile(p) {
   return `<a class="tile ${esc(p.direction || "")}" href="${esc(p.href || playerHref(p.player_id, p.name))}">
     ${pill(p.direction, p.gap_label)}
     <div class="who">${esc(tidyName(p.name))}</div>
-    <div class="sub">${esc(clubName(p.club) || "—")} · ${esc(p.position || "")}</div>
+    <div class="sub">${esc(metaJoin(clubName(p.club), p.position || "") || "—")}</div>
     <div class="price">${esc(p.true_label || "—")}<span>Transfermarkt ${esc(p.tm_label || "—")}</span></div>
   </a>`;
 }
 
 function playerRow(p) {
   return `<a class="row" href="${esc(p.href || playerHref(p.player_id, p.name))}">
-    <div class="who-col"><div class="name">${esc(tidyName(p.name))}</div><div class="meta">${esc(p.position || "")}${p.age != null && p.age !== "" ? " · " + esc(p.age) + " yaş" : ""}</div></div>
+    <div class="who-col"><div class="name">${esc(tidyName(p.name))}</div><div class="meta">${esc(metaJoin(p.position || "", p.age != null && p.age !== "" ? p.age + " yaş" : ""))}</div></div>
     <div class="club-col" title="${esc(clubName(p.club) || "")}">${esc(clubName(p.club) || "—")}</div>
     <div class="league-col" title="${esc(p.league || "")}">${esc(p.league || "—")}</div>
     <div class="num">${esc(p.true_label || p.tm_label || "—")}${p.tm_label ? `<div class="meta">TM ${esc(p.tm_label)}</div>` : ""}</div>
@@ -328,9 +328,7 @@ function playerRow(p) {
 function tenureRow(p) {
   const mins = p.minutes_365 != null && p.minutes_365 !== "" ? `${fmtCount(p.minutes_365)} dk` : "";
   const arrived = p.arrived ? fmtDate(p.arrived) : "";
-  const meta = [p.position || "", p.age != null && p.age !== "" ? `${p.age} yaş` : "", mins, arrived ? `geliş ${arrived}` : ""]
-    .filter(Boolean)
-    .join(" · ");
+  const meta = metaJoin(p.position || "", p.age != null && p.age !== "" ? `${p.age} yaş` : "", mins, arrived ? `geliş ${arrived}` : "");
   const pid = p.player_id != null ? String(p.player_id) : "";
   return `<article class="tenure-row" data-pid="${esc(pid)}">
     <button type="button" class="tenure-head"${pid ? "" : " disabled"}>
@@ -423,7 +421,7 @@ function careerCopy(s) {
   if (s && s.market_label) bits.push(`Transfer günündeki Transfermarkt etiketi ${s.market_label}.`);
   if (s && s.wage_annual) {
     bits.push(`Açık rapordaki taban maaş ${s.wage_label}${s.wage_weekly_label ? ` (${s.wage_weekly_label})` : ""}.`);
-    if (s.wage_total_label) bits.push(`Kulüpteki süreye göre maaş yükü ${s.wage_total_label}.`);
+    if (s.wage_total_label) bits.push(`Sözleşme süresine göre maaş yükü ${s.wage_total_label}.`);
     if (s.wage_bonus_label) bits.push(`Aynı raporda yıllık bonus ${s.wage_bonus_label}; toplam maliyete eklenmez.`);
     if (s.total_scope === "tam") bits.push("Toplam maliyet, açıklanan bonservis ile bu maaş yükünün toplamıdır.");
     else bits.push("Bonservis bu dönem için yok veya açıklanmadı; toplam yalnızca maaş yüküdür.");
@@ -522,7 +520,7 @@ function resultRow(p) {
     </a>`;
   }
   return `<a href="${esc(p.href || playerHref(p.player_id, p.name))}">
-    <div><div class="name">${esc(tidyName(p.name))}</div><div class="meta">${esc(clubName(p.club) || "")} · ${esc(p.position || "")}</div></div>
+    <div><div class="name">${esc(tidyName(p.name))}</div><div class="meta">${esc(metaJoin(clubName(p.club) || "", p.position || ""))}</div></div>
     <div class="num">${esc(p.true_label || p.tm_label || "—")}</div>
   </a>`;
 }
@@ -623,6 +621,42 @@ function fact(label, value) {
   return `<div><span>${esc(label)}</span><b>${esc(value)}</b></div>`;
 }
 
+function injuryFact(live) {
+  const days = Number(live && live.injury_days) || 0;
+  if (days) return `Açık kayıt · yaklaşık ${days} gün`;
+  const last = ((live && live.injuries) || [])[0];
+  if (last && last.injury) {
+    const season = last.season ? ` · ${last.season}` : "";
+    return `${last.injury}${season}`;
+  }
+  if (live && live.fotmob && live.fotmob.injured) return "Açık kayıt";
+  return "";
+}
+
+function playerPayloadThin(data) {
+  const live = (data && data.live) || {};
+  if (live.partial) return true;
+  const career = live.career || {};
+  const n = (career.current || []).length + (career.former || []).length + (career.youth || []).length;
+  return n === 0;
+}
+
+async function loadPlayerPack(id) {
+  let data;
+  try {
+    data = await api(`/api/players/${id}`);
+  } catch (err) {
+    data = await api(`/api/players/${id}`);
+  }
+  if (playerPayloadThin(data)) {
+    try {
+      const again = await api(`/api/players/${id}`);
+      if (again && again.player) data = again;
+    } catch (_) {}
+  }
+  return data;
+}
+
 function metric(label, value, className = "") {
   const shown = value == null || value === "" ? "—" : value;
   return `<div class="metric ${esc(className)}"><span>${esc(label)}</span><b>${esc(shown)}</b></div>`;
@@ -719,13 +753,14 @@ function tmMove(history) {
 }
 
 async function ensureReady() {
+  const skipBoot = routeParts()[0] === "fantezi" || routeParts()[0] === "yontem";
   const s = await api("/api/status");
   ready = !!s.ready;
-  if (ready) {
+  if (ready || skipBoot) {
     boot.classList.add("hidden");
     boot.setAttribute("aria-hidden", "true");
     if (bootTimer) clearInterval(bootTimer);
-    return true;
+    return ready;
   }
   boot.classList.remove("hidden");
   boot.setAttribute("aria-hidden", "false");
@@ -873,7 +908,7 @@ function properCase(value) {
 }
 
 function clubName(value) {
-  const raw = String(value ?? "").trim();
+  const raw = String(value ?? "").trim().replace(/[\s·•]+$/g, "").replace(/^[·•\s]+/, "");
   const n = foldTr(raw).replace(/[\s-]/g, "");
   if (
     !raw ||
@@ -891,6 +926,13 @@ function clubName(value) {
     return "Kulüpsüz";
   }
   return properCase(raw);
+}
+
+function metaJoin(...parts) {
+  return parts
+    .map((p) => String(p ?? "").trim())
+    .filter((p) => p && p !== "—" && p !== "·" && p !== ".")
+    .join(" · ");
 }
 
 function footLabel(value) {
@@ -1172,8 +1214,12 @@ async function renderLeagues(gen) {
 
 async function renderPlayer(id, gen) {
   view.innerHTML = waitScreen("Oyuncu dosyası", "Transfermarkt, FotMob ve Aurea değeri okunuyor.");
-  const data = await api(`/api/players/${id}`);
+  const data = await loadPlayerPack(id);
   if (gen !== viewGen) return;
+  paintPlayerView(data);
+}
+
+function paintPlayerView(data) {
   const p = data.player || {};
   rememberPlayer(p);
   const r = data.report || {};
@@ -1215,6 +1261,7 @@ async function renderPlayer(id, gen) {
     fact("Kariyer tepesi", p.peak_label),
     fact("Kart", cardLine),
     fact("Bu sezon", seasonLine),
+    fact("Sakatlık", injuryFact(live)),
   ].filter(Boolean).join("");
   const table = (data.season_table || []).filter((row) => Number(row.apps) > 0);
   const seasonHtml = table.length
@@ -1261,7 +1308,7 @@ async function renderPlayer(id, gen) {
     <div class="screen-only">
     <section class="panel player-head player-compact">
       ${live.fetched_at ? `<div class="live-badge print-hide"><i></i> Canlı${when ? " · " + esc(when) : ""}</div>` : ""}
-      <p class="kicker">${esc(posShown)}${leagueShown ? " · " + esc(leagueShown) : ""}</p>
+      <p class="kicker">${esc(metaJoin(posShown, leagueShown))}</p>
       <h1>${esc(tidyName(p.name))}</h1>
       <p class="sub">${clubHref ? `<a href="${esc(clubHref)}">${esc(clubShown || "—")}</a>` : esc(clubShown || "—")}${p.shirt ? " · #" + esc(p.shirt) : ""}${p.age ? " · " + esc(p.age) + " yaş" : ""}</p>
       <div class="player-actions no-print">
@@ -1308,7 +1355,7 @@ async function renderPlayer(id, gen) {
     <div class="group print-hide">
       <h3>Emsaller</h3>
       <div class="comps">
-        ${(data.similar || []).map((s) => `<a class="comp" href="${esc(s.href || playerHref(s.player_id, s.name))}"><b>${esc(tidyName(s.name))}</b><div class="comp-meta"><span>${esc(clubName(s.club) || "")}${s.age ? " · " + esc(Math.round(s.age)) + " yaş" : ""}</span><span>${esc(s.true_label || s.tm_label || "")}</span></div></a>`).join("")}
+        ${(data.similar || []).map((s) => `<a class="comp" href="${esc(s.href || playerHref(s.player_id, s.name))}"><b>${esc(tidyName(s.name))}</b><div class="comp-meta"><span>${esc(metaJoin(clubName(s.club) || "", s.age ? Math.round(s.age) + " yaş" : "") || "—")}</span><span>${esc(s.true_label || s.tm_label || "")}</span></div></a>`).join("")}
       </div>
     </div>
     </div>
@@ -1447,16 +1494,25 @@ function fxPtsLabel(p) {
   return n == null || !Number.isFinite(n) ? "—" : fmtOne(n);
 }
 
-function fxShirt(p, capName) {
+function shortOpp(name) {
+  return String(name || "")
+    .replace(/\s+Sportif Faaliyetler$/i, "")
+    .replace(/\s+\b(FK|JK|SK|AS)\b$/i, "")
+    .trim();
+}
+
+function fxShirt(p, capName, viceName) {
   const name = fxName(p);
   const cap = String(p.player || "") === capName || String(p.display_name || "") === capName || foldTr(name) === foldTr(tidyName(capName));
+  const vice = !cap && viceName && (String(p.player || "") === viceName || String(p.display_name || "") === viceName || foldTr(name) === foldTr(tidyName(viceName)));
   const pts = fxPtsLabel(p);
   const price = p.price_m != null ? `${fmtOne(p.price_m)} mn` : "";
-  const opp = p.fixture_opponent ? "vs " + p.fixture_opponent : "";
-  return `<a class="shirt${cap ? " captain" : ""}" href="/ara?q=${encodeURIComponent(name)}">
+  const opp = p.fixture_opponent ? "vs " + shortOpp(p.fixture_opponent) : "";
+  const mark = cap ? "K" : (vice ? "YK" : "");
+  return `<a class="shirt${cap ? " captain" : ""}${vice ? " vice" : ""}" href="/ara?q=${encodeURIComponent(name)}">
     <b>${esc(name)}</b>
-    <span>${esc(properCase(p.team) || "")}${opp ? " · " + esc(opp) : ""}</span>
-    <span>${esc(price)}${price && pts ? " · " : ""}${pts !== "—" ? esc(pts) + " p" : ""}${cap ? " · K" : ""}</span>
+    <span>${esc(opp)}</span>
+    <span>${esc(metaJoin(price, pts !== "—" ? pts + " p" : "", mark))}</span>
   </a>`;
 }
 
@@ -1512,24 +1568,35 @@ function orderBench(squad, xiList, originalBench) {
   const used = new Set((xiList || []).map(fxKey).filter(Boolean));
   const out = [];
   const seen = new Set();
-  for (const p of originalBench || []) {
+  const push = (item) => {
+    const p = fxMatch(item, squad);
     const k = fxKey(p);
     if (k && !used.has(k) && !seen.has(k)) {
       out.push(p);
       seen.add(k);
     }
-  }
-  for (const p of squad || []) {
-    const k = fxKey(p);
-    if (k && !used.has(k) && !seen.has(k)) {
-      out.push(p);
-      seen.add(k);
-    }
-  }
-  return out;
+  };
+  for (const p of originalBench || []) push(p);
+  for (const p of squad || []) push(p);
+  return out.sort((a, b) => {
+    const ga = String(a.position || "") === "GK" ? 0 : 1;
+    const gb = String(b.position || "") === "GK" ? 0 : 1;
+    if (ga !== gb) return ga - gb;
+    const ra = Number(a.bench_rank);
+    const rb = Number(b.bench_rank);
+    const aRank = Number.isFinite(ra) ? ra : 99;
+    const bRank = Number.isFinite(rb) ? rb : 99;
+    if (aRank !== bRank) return aRank - bRank;
+    const pa = Number(a.play_probability);
+    const pb = Number(b.play_probability);
+    const aPlay = Number.isFinite(pa) ? pa : 0.85;
+    const bPlay = Number.isFinite(pb) ? pb : 0.85;
+    if (aPlay !== bPlay) return bPlay - aPlay;
+    return (fxPts(b) || 0) - (fxPts(a) || 0);
+  });
 }
 
-function fxPitchHtml(xiList, benchList, capName, squad) {
+function fxPitchHtml(xiList, benchList, capName, squad, viceName) {
   const xi = (xiList || []).map((x) => fxMatch(x, squad));
   const byPos = { FW: [], MF: [], DF: [], GK: [] };
   xi.forEach((p) => {
@@ -1537,14 +1604,25 @@ function fxPitchHtml(xiList, benchList, capName, squad) {
     if (byPos[pos]) byPos[pos].push(p);
     else byPos.MF.push(p);
   });
-  const row = (list) => list.length ? `<div class="pitch-row">${list.map((p) => fxShirt(p, capName)).join("")}</div>` : "";
-  const bench = (benchList || []).map((x) => fxMatch(x, squad));
+  const row = (list) => list.length ? `<div class="pitch-row">${list.map((p) => fxShirt(p, capName, viceName)).join("")}</div>` : "";
+  const bench = orderBench(squad, xi, benchList);
   const benchHtml = bench.length
-    ? `<div class="group"><h3>Yedekler</h3>
-        <div class="bench-list">${bench.map((p) => `<a class="bench-who" href="/ara?q=${encodeURIComponent(fxName(p))}">
-            <b>${esc(fxName(p))}</b>
-            <span>${esc(properCase(p.team) || "")} · ${esc(p.position || "")}${fxPts(p) != null ? " · " + fxPtsLabel(p) + " p" : ""}</span>
-          </a>`).join("")}</div>
+    ? `<div class="group bench-panel"><h3>Yedekler</h3>
+        <p class="sub bench-note">Yedek kaleci ayrı, ardından sıra 1-2-3. Süre almayan 1 atlanır; 2 girer. Formasyon bozulursa o değişiklik yapılmaz.</p>
+        <div class="bench-list">${bench.map((p, i) => {
+          const isGk = String(p.position || "") === "GK";
+          const slot = isGk ? "KL" : String(p.bench_rank > 0 ? p.bench_rank : (i + 1));
+          const opp = p.fixture_opponent ? "vs " + p.fixture_opponent : "";
+          const pts = fxPts(p) != null ? fxPtsLabel(p) + " p" : "";
+          return `<a class="bench-who" href="/ara?q=${encodeURIComponent(fxName(p))}">
+            <span class="bench-slot">${esc(String(slot))}</span>
+            <span class="bench-copy">
+              <b>${esc(fxName(p))}</b>
+              <span>${esc(opp)}</span>
+              <span class="bench-pts">${esc(pts)}</span>
+            </span>
+          </a>`;
+        }).join("")}</div>
       </div>`
     : "";
   return { pitch: `${row(byPos.FW)}${row(byPos.MF)}${row(byPos.DF)}${row(byPos.GK)}`, benchHtml };
@@ -1612,11 +1690,17 @@ async function renderFantasy(gen) {
   const bench = result.bench || [];
   const squad = result.squad || [...xi, ...bench];
   const capName = String(result.captain?.player || result.captain?.display_name || "");
+  const viceName = String(result.vice_captain?.player || result.vice_captain?.display_name || "");
+  const viceLabel = tidyName(result.vice_captain?.display_name || result.vice_captain?.player || "");
   const card = payload?.manager_card || {};
   const analysis = payload?.analysis || [];
   const comps = payload?.formation_comparisons || [];
   const watch = payload?.watch || [];
-  const firstPaint = fxPitchHtml(xi, bench, capName, squad);
+  const firstPaint = fxPitchHtml(xi, bench, capName, squad, viceName);
+  const fetchedAt = payload?.fetched_at ? new Date(payload.fetched_at) : null;
+  const fresh = fetchedAt && !Number.isNaN(fetchedAt.getTime())
+    ? `Güncellendi ${fetchedAt.toLocaleString("tr-TR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} · 2026/27 puan durumu, fikstür ve iddia kotası`
+    : "2026/27 puan durumu, fikstür ve iddia kotası";
   view.innerHTML = `
     <section class="panel account-strip">
       <div>
@@ -1630,6 +1714,7 @@ async function renderFantasy(gen) {
       <div>
         <h1>TFF Fantezi Lig</h1>
         <p class="lede">${running ? esc(st.message || "Hesaplanıyor…") : (payload ? `Diziliş ${esc(result.formation || "")} · ${esc(fmtOne(result.total_cost || 0))} mn · kasa ${esc(fmtOne(result.bank || 0))} mn` : "Kadro henüz yok.")}</p>
+        ${payload && !running ? `<p class="fresh-stamp">${esc(fresh)}</p>` : ""}
       </div>
       <button class="btn" id="fx-run" type="button" ${running ? "disabled" : ""}>${running ? "Hesaplanıyor…" : (payload ? "Yeniden hesapla" : "Kadro hesapla")}</button>
     </section>
@@ -1638,7 +1723,7 @@ async function renderFantasy(gen) {
     ${payload ? `
       <div class="tri fantasy-meta">
         <div class="price-card hero"><div class="k">İlk 11</div><div class="n">${esc(fmtOne(result.xi_if_plays || result.total_projected || 0))}</div><div class="hint">Seçim değeri ${esc(fmtOne(result.total_projected || 0))} · yedek ${esc(fmtOne(result.bench_projected || 0))}</div></div>
-        <div class="price-card"><div class="k">Kaptan</div><div class="n">${esc(tidyName(result.captain?.display_name || result.captain?.player || "—"))}</div><div class="hint">${esc(result.captain?.team || "")}${fxPts(result.captain) != null ? " · " + fxPtsLabel(result.captain) + " p" : ""}</div></div>
+        <div class="price-card"><div class="k">Kaptan</div><div class="n">${esc(tidyName(result.captain?.display_name || result.captain?.player || "—"))}</div><div class="hint">${esc(metaJoin(result.captain?.team || "", fxPts(result.captain) != null ? fxPtsLabel(result.captain) + " p" : "") || "—")}${viceLabel ? `<br>Yedek kaptan ${esc(viceLabel)}. As çıkmazsa 2 kat.` : ""}</div></div>
         <div class="price-card"><div class="k">Menajer kartı</div><div class="n">${esc(card.use ? (card.card || "Kullan") : "Bu hafta yok")}</div><div class="hint">${esc(card.why || "Bu hafta menajer kartı kullanmayın.")}</div></div>
       </div>
       ${comps.length ? `<div class="group"><h3>Diziliş karşılaştırması</h3>
@@ -1651,7 +1736,7 @@ async function renderFantasy(gen) {
       <div id="fx-bench">${firstPaint.benchHtml}</div>
       ${watch.length ? `<div class="group"><h3>Alınabilecekler</h3>
         <div class="comps">
-          ${watch.map((p) => `<a class="comp" href="/ara?q=${encodeURIComponent(fxName(p))}"><b>${esc(fxName(p))}</b><div class="comp-meta"><span>${esc(properCase(p.team) || "")} · ${esc(p.position || "")}</span><span>${fxPts(p) != null ? fxPtsLabel(p) + " p" : ""}</span></div></a>`).join("")}
+          ${watch.map((p) => `<a class="comp" href="/ara?q=${encodeURIComponent(fxName(p))}"><b>${esc(fxName(p))}</b><div class="comp-meta"><span>${esc(metaJoin(properCase(p.team) || "", p.position || "") || "—")}</span><span>${fxPts(p) != null ? fxPtsLabel(p) + " p" : ""}</span></div></a>`).join("")}
         </div>
       </div>` : ""}
       ${analysis.length ? `<div class="group analysis-prose"><h3>Analiz</h3>${analysis.map((s) => {
@@ -1686,7 +1771,7 @@ async function renderFantasy(gen) {
   let liveXi = xi;
   let liveBench = bench;
   const paintPitch = () => {
-    const painted = fxPitchHtml(liveXi, liveBench, capName, squad);
+    const painted = fxPitchHtml(liveXi, liveBench, capName, squad, viceName);
     if (pitch) pitch.innerHTML = painted.pitch;
     if (benchBox) benchBox.innerHTML = painted.benchHtml;
     fxBindShirts();
@@ -1732,7 +1817,7 @@ async function renderScout(gen) {
       <button type="button" class="scout-head">
         <div class="who">
           <b>${esc(tidyName(p.name))}</b>
-          <span>${esc(clubName(p.club) || "—")} · ${esc(p.band || p.league || "")}${p.age ? " · " + esc(p.age) + " yaş" : ""}</span>
+          <span>${esc(metaJoin(clubName(p.club), p.band || p.league || "", p.age ? p.age + " yaş" : "") || "—")}</span>
         </div>
         <div>
           ${pill(p.direction, p.gap_label)}
@@ -1790,9 +1875,9 @@ function pickColumn(p) {
   const fm = live.fotmob || {};
   const row = p.player || {};
   return `<article class="compare-card">
-    <p class="kicker">${esc(row.position || "")}${row.league ? " · " + esc(row.league) : ""}</p>
+    <p class="kicker">${esc(metaJoin(row.position || "", row.league || ""))}</p>
     <h2><a href="${esc(row.href || playerHref(row.player_id, row.name))}">${esc(tidyName(row.name))}</a></h2>
-    <p class="sub">${esc(clubName(row.club) || "—")}${row.age ? " · " + esc(row.age) + " yaş" : ""}</p>
+    <p class="sub">${esc(metaJoin(clubName(row.club), row.age ? row.age + " yaş" : "") || "—")}</p>
     ${pill(row.direction, row.gap_label)}
     <div class="duo tight">
       <div class="price-card"><div class="k">Transfermarkt</div><div class="n">${esc(row.tm_label || "—")}</div></div>
@@ -1818,7 +1903,7 @@ function bindPicker(inputId, boxId, onPick) {
     const usable = rows.filter((p) => p.player_id != null && String(p.player_id) !== "");
     box.innerHTML = usable.length
       ? usable.map((p) => `<button type="button" class="pick-row" data-id="${esc(p.player_id)}">
-          <span><span class="name">${esc(tidyName(p.name))}</span><span class="meta">${esc(clubName(p.club) || "")} · ${esc(p.position || "")}</span></span>
+          <span><span class="name">${esc(tidyName(p.name))}</span><span class="meta">${esc(metaJoin(clubName(p.club), p.position || "") || "—")}</span></span>
           <span class="num">${esc(p.true_label || p.tm_label || "—")}</span>
         </button>`).join("")
       : `<p class="sub" style="padding:12px">Eşleşme yok.</p>`;

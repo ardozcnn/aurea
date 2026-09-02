@@ -279,10 +279,9 @@ def build_report(row: dict, similar: list[dict], live: dict | None) -> dict[str,
         )
 
     guncel = []
-    if fm.get("injured"):
+    if fm.get("injured") and not (live or {}).get("injury_days"):
         guncel.append(
-            "FotMob kaydında açık bir sakatlık işareti var. "
-            "Dönüş netleşmeden yüksek bedel ve fantezi ilk 11’i risklidir."
+            "Açık sakatlık kaydı var. Dönüş netleşmeden yüksek bedel risklidir."
         )
     if fm.get("apps"):
         lig_ad = fm.get("league") or league
@@ -549,7 +548,7 @@ def build_report(row: dict, similar: list[dict], live: dict | None) -> dict[str,
                 emsal.append(f"Emsallerin Aurea ortalaması {format_eur(tavg)}; üretim bandı uyumlu.")
 
     karar = []
-    hurt_now = bool((live or {}).get("injury_days"))
+    hurt_now = bool((live or {}).get("injury_days")) or bool(fm.get("injured"))
     if hurt_now:
         karar.append("Açık sakatlık varken yüksek bedel ve kesin hüküm ertelenir. Dönüş netleşince dosya yeniden okunur.")
     elif direction == "dusuk" and rol == "as" and age <= 26:

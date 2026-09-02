@@ -10,7 +10,7 @@ import threading
 from datetime import datetime, timezone
 from typing import Any
 
-from app.config import FANTASY_CACHE, FANTASY_ROOT
+from app.config import DATA_DIR, FANTASY_CACHE, FANTASY_ROOT
 from app.store import json_safe
 
 _LOCK = threading.Lock()
@@ -24,6 +24,7 @@ _STATE: dict[str, Any] = {
 }
 _LAST: dict[str, Any] | None = None
 _SESSION: dict[str, Any] | None = None
+_HAUL_CACHE: tuple[float, list[dict[str, Any]]] | None = None
 _PLAYER_KEYS = (
     "player",
     "display_name",
@@ -38,18 +39,53 @@ _PLAYER_KEYS = (
     "fixture_attack_mult",
     "fixture_cs_mult",
     "fixture_band",
+    "fixture_p_cs",
+    "fixture_lambda_for",
+    "fixture_lambda_against",
+    "fixture_match_kind",
+    "cs_after_fixture",
     "reason",
+    "form_apps",
+    "current_apps",
+    "prev_apps",
+    "gls_pa",
+    "ast_pa",
+    "xg_pa",
+    "current_minutes",
+    "tff_minutes",
+    "fotmob_recent_starts",
+    "fotmob_recent_played",
     "availability",
     "avail_news",
     "avail_pct",
     "data_src",
     "tff_points",
+    "tff_round_points",
+    "tff_goals",
+    "tff_assists",
     "tff_form",
     "selected_by",
     "rating",
     "ppm",
     "tff_ppm",
     "selection_pts",
+    "bench_rank",
+    "table_pos",
+    "opp_table_pos",
+    "table_n",
+    "team_gf_pg",
+    "team_ga_pg",
+    "opp_gf_pg",
+    "opp_ga_pg",
+    "odds_favorite",
+    "odds_p_win",
+    "odds_p_over_25",
+    "odds_p_btts",
+    "odds_p_first",
+    "odds_corner_line",
+    "odds_expected_corners",
+    "odds_gs_override",
+    "odds_source",
 )
 
 def _league_id() -> str:
@@ -268,10 +304,10 @@ def last_payload() -> dict[str, Any] | None:
         if not _LAST:
             return None
         payload = json_safe(_LAST)
-    try:
-        payload["analysis"] = _analysis({}, payload)
-    except Exception:
-        pass
+    result = payload.get("result")
+    if isinstance(result, dict):
+        result["bench"] = _stamp_bench_ranks(_player_rows(result.get("bench")))
+        payload["result"] = result
     return _sanitize_payload(_with_formation_xi(payload))
 
 
@@ -327,6 +363,10 @@ def _sanitize_payload(payload: dict[str, Any]) -> dict[str, Any]:
     payload["manager_card"] = card
     payload["account"] = account_public() or {}
     payload["xi_table"] = _xi_table(result if isinstance(result, dict) else {})
+    try:
+        _blend_watch_with_hauls(payload)
+    except Exception:
+        pass
     payload["analysis"] = _analysis({}, payload)
     return payload
 
@@ -340,7 +380,15 @@ def _xi_table(result: dict[str, Any]) -> list[dict[str, Any]]:
             opp = player.get("fixture_opponent") or ""
             venue = ""
             if opp:
-                venue = "vs " + str(opp)
+                fx_kind = str(player.get("fixture_match_kind") or "").strip()
+                if fx_kind == "derbi":
+                    venue = "vs " + str(opp) + " · derbi"
+                elif fx_kind == "kolay":
+                    venue = "vs " + str(opp) + " · rakip zayıf"
+                elif fx_kind == "zor":
+                    venue = "vs " + str(opp) + " · rakip sert"
+                else:
+                    venue = "vs " + str(opp)
             rows.append(
                 {
                     "role": kind,
@@ -370,6 +418,103 @@ def _slim_player(row: dict[str, Any]) -> dict[str, Any]:
         if key in out and out[key]:
             out[key] = _tidy_name(str(out[key]))
     return out
+
+
+def _tff_week_hauls() -> list[dict[str, Any]]:
+    global _HAUL_CACHE
+    path = DATA_DIR / "tff_raw.json"
+    if not path.exists():
+        return []
+    stamp = float(path.stat().st_mtime)
+    prices_path = DATA_DIR / "prices.csv"
+    if prices_path.exists():
+        stamp += float(prices_path.stat().st_mtime)
+    if _HAUL_CACHE is not None and _HAUL_CACHE[0] == stamp:
+        return _HAUL_CACHE[1]
+    try:
+        blob = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    inner: Any = blob
+    if isinstance(blob, dict) and blob:
+        inner = next(iter(blob.values()))
+    try:
+        from src.tff_client import parse_tff_official_players
+
+        frame = parse_tff_official_players(inner)
+    except Exception:
+        _HAUL_CACHE = (stamp, [])
+        return []
+    teams: dict[str, str] = {}
+    if prices_path.exists():
+        try:
+            import pandas as pd
+
+            prices = pd.read_csv(prices_path)
+            for _, row in prices.iterrows():
+                label = str(row.get("display_name") or row.get("player_name") or "").strip()
+                club = str(row.get("team") or "").strip()
+                if label and club and not club.isdigit():
+                    teams[label] = club
+        except Exception:
+            teams = {}
+    rows: list[dict[str, Any]] = []
+    for rec in frame.to_dict(orient="records"):
+        name = str(rec.get("display_name") or rec.get("player_name") or "").strip()
+        if not name:
+            continue
+        team = str(rec.get("team") or "").strip()
+        if not team or team.isdigit():
+            team = teams.get(name, team)
+        rows.append(
+            {
+                "player": name,
+                "display_name": name,
+                "team": team,
+                "position": rec.get("position"),
+                "price_m": rec.get("price_m"),
+                "tff_points": rec.get("tff_points") or 0,
+                "tff_round_points": rec.get("tff_round_points") or 0,
+                "tff_goals": rec.get("tff_goals") or 0,
+            }
+        )
+    rows.sort(
+        key=lambda item: (
+            -float(item.get("tff_round_points") or 0),
+            -float(item.get("tff_points") or 0),
+            -float(item.get("tff_goals") or 0),
+        )
+    )
+    _HAUL_CACHE = (stamp, rows)
+    return rows
+
+
+def _blend_watch_with_hauls(payload: dict[str, Any]) -> None:
+    result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+    squad_names = set()
+    for row in (result.get("squad") or []) + (result.get("xi") or []):
+        if isinstance(row, dict):
+            name = _tidy_name(str(row.get("display_name") or row.get("player") or ""))
+            if name:
+                squad_names.add(name)
+    watch = [row for row in (payload.get("watch") or []) if isinstance(row, dict)]
+    extra = []
+    for row in _tff_week_hauls()[:10]:
+        name = _tidy_name(str(row.get("display_name") or row.get("player") or ""))
+        if name and name not in squad_names:
+            extra.append(_slim_player(row))
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in extra + watch:
+        name = _tidy_name(str(row.get("display_name") or row.get("player") or ""))
+        if not name or name in seen or name in squad_names:
+            continue
+        merged.append(row)
+        seen.add(name)
+        if len(merged) >= 6:
+            break
+    if merged:
+        payload["watch"] = merged
 
 
 def _num(value: Any) -> float | None:
@@ -1018,8 +1163,35 @@ def _layout_xi(squad: list[Any], formation: str) -> dict[str, list[dict[str, Any
             xi.append(row)
             used.add(key)
     bench = [row for row in pool if _player_key(row) not in used]
-    bench.sort(key=lambda row: float(row.get("projected_pts") or 0), reverse=True)
-    return {"xi": xi, "bench": bench}
+    return {"xi": xi, "bench": _stamp_bench_ranks(bench)}
+
+
+def _stamp_bench_ranks(bench: list[Any]) -> list[dict[str, Any]]:
+    rows = [row for row in bench if isinstance(row, dict)]
+    gk = [row for row in rows if str(row.get("position") or "").upper() == "GK"]
+    field = [row for row in rows if str(row.get("position") or "").upper() != "GK"]
+    field.sort(
+        key=lambda row: (
+            -float(row.get("play_probability") or 0.85),
+            -float(row.get("pts_if_plays") or row.get("projected_pts") or 0),
+        )
+    )
+    ordered = gk + field
+    field_n = 0
+    for row in ordered:
+        if str(row.get("position") or "").upper() == "GK":
+            row["bench_rank"] = 0
+        else:
+            field_n += 1
+            row["bench_rank"] = field_n
+    return ordered
+
+
+def _bench_sort_key(player: dict[str, Any]) -> tuple:
+    gk = 0 if str(player.get("position") or "").upper() == "GK" else 1
+    rank = player.get("bench_rank")
+    rank_n = int(rank) if rank is not None else 99
+    return (gk, rank_n, -_if_plays(player))
 
 
 def _player_rows(value: Any) -> list[Any]:
@@ -1189,6 +1361,13 @@ def _side_word(player: dict[str, Any]) -> str:
 
 
 def _band_word(player: dict[str, Any]) -> str:
+    kind = str(player.get("fixture_match_kind") or "").strip()
+    if kind == "derbi":
+        return "dengeli"
+    if kind == "kolay":
+        return "rahat"
+    if kind == "zor":
+        return "sert"
     raw = str(player.get("fixture_band") or "").strip()
     if raw in {"rahat", "sert", "dengeli"}:
         return raw
@@ -1196,22 +1375,159 @@ def _band_word(player: dict[str, Any]) -> str:
     cs = _num(player.get("fixture_cs_mult")) or 1.0
     pos = str(player.get("position") or "").upper()
     if pos in {"GK", "DF"}:
-        if cs >= 1.08:
+        if cs >= 1.12:
             return "rahat"
-        if cs <= 0.95:
+        if cs <= 0.90:
             return "sert"
         return "dengeli"
-    if att >= 1.10:
+    if att >= 1.14:
         return "rahat"
-    if att <= 0.92:
+    if att <= 0.88:
         return "sert"
     return "dengeli"
+
+
+def _table_blocks_easy(player: dict[str, Any]) -> bool:
+    """Üst sıra rakibe 'kolay/zayıf' yazılmaz; 2026/27 tablosu esas."""
+    opp_pos = _num(player.get("opp_table_pos"))
+    if opp_pos is not None and opp_pos <= 6:
+        return True
+    own = _num(player.get("table_pos"))
+    n_teams = _num(player.get("table_n")) or 18.0
+    if own is not None and opp_pos is not None and own >= (n_teams - 4) and opp_pos <= 8:
+        return True
+    return False
+
+
+def _kind_from_clubs(team: str, opponent: str) -> str:
+    if not str(team or "").strip() or not str(opponent or "").strip():
+        return ""
+    t_big = _is_big_club(team)
+    o_big = _is_big_club(opponent)
+    # Derbi yalnızca Galatasaray, Fenerbahçe, Beşiktaş kendi aralarında oynarsa.
+    if _is_core_club(team) and _is_core_club(opponent):
+        return "derbi"
+    if t_big and o_big:
+        return ""
+    if t_big and not o_big:
+        return "kolay"
+    if o_big and not t_big:
+        return "zor"
+    return ""
+
+
+def _match_kind(player: dict[str, Any]) -> str:
+    team = str(player.get("team") or "").strip()
+    opp = str(player.get("fixture_opponent") or "").strip()
+    raw = str(player.get("fixture_match_kind") or "").strip()
+    club_kind = _kind_from_clubs(team, opp)
+    if club_kind == "derbi":
+        return "derbi"
+    if raw == "derbi":
+        return "denk"
+    blocked = _table_blocks_easy(player)
+
+    def _soft(kind: str) -> str:
+        if kind == "kolay" and blocked:
+            return "denk"
+        return kind
+
+    if raw in {"kolay", "zor", "denk"}:
+        return _soft(raw)
+    if club_kind:
+        return _soft(club_kind)
+    band = _band_word(player)
+    if band == "rahat":
+        return _soft("kolay")
+    if band == "sert":
+        return "zor"
+    return "denk"
+
+
+_CLUB_GENERIC = frozenset(
+    {
+        "fk",
+        "jk",
+        "sk",
+        "as",
+        "spor",
+        "sportif",
+        "faaliyetler",
+        "istanbul",
+        "kulubu",
+        "kulup",
+    }
+)
+
+
+def _club_tokens(name: str) -> set[str]:
+    tokens = set(re.findall(r"[a-z0-9]+", _fold_token(name)))
+    return {tok for tok in tokens if tok not in _CLUB_GENERIC and len(tok) >= 3}
+
+
+def _same_club(left: str, right: str) -> bool:
+    a, b = _club_fold(left), _club_fold(right)
+    if not a or not b:
+        return False
+    if a == b or a in b or b in a:
+        return True
+    ta, tb = _club_tokens(left), _club_tokens(right)
+    if not ta or not tb:
+        return False
+    return ta == tb or ta <= tb or tb <= ta
+
+
+def _club_label(team: str) -> str:
+    folded = _club_fold(team)
+    for key, label in _BIG_CLUBS:
+        if key in folded or folded in key:
+            return label
+    return str(team or "").strip() or "—"
+
+
+def _xi_matches(xi: list[dict[str, Any]], fixtures: list[Any]) -> list[dict[str, Any]]:
+    groups: list[dict[str, Any]] = []
+    used: set[int] = set()
+    rows = [p for p in xi if isinstance(p, dict)]
+    for fx in fixtures or []:
+        if not isinstance(fx, dict):
+            continue
+        home = str(fx.get("home") or "")
+        away = str(fx.get("away") or "")
+        if not home or not away:
+            continue
+        members: list[dict[str, Any]] = []
+        for idx, player in enumerate(rows):
+            if idx in used:
+                continue
+            team = str(player.get("team") or "")
+            if _same_club(team, home) or _same_club(team, away):
+                members.append(player)
+                used.add(idx)
+        if members:
+            groups.append(
+                {
+                    "home": home,
+                    "away": away,
+                    "kickoff": str(fx.get("kickoff") or ""),
+                    "players": members,
+                }
+            )
+    leftover = [player for idx, player in enumerate(rows) if idx not in used]
+    if leftover:
+        groups.append({"home": "", "away": "", "kickoff": "", "players": leftover})
+    return groups
 
 
 def _club_fold(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", _fold_token(name))
 
 
+_CORE_CLUBS = (
+    ("galatasaray", "Galatasaray"),
+    ("fenerbahce", "Fenerbahçe"),
+    ("besiktas", "Beşiktaş"),
+)
 _BIG_CLUBS = (
     ("fenerbahce", "Fenerbahçe"),
     ("galatasaray", "Galatasaray"),
@@ -1220,8 +1536,138 @@ _BIG_CLUBS = (
 )
 
 
+def _is_core_club(team: str) -> bool:
+    folded = _club_fold(team)
+    if len(folded) < 4:
+        return False
+    return any(key in folded or folded in key for key, _label in _CORE_CLUBS)
+
+
+def _pos_tr(pos: str) -> str:
+    return {
+        "GK": "kaleci",
+        "DF": "defans",
+        "MF": "orta saha",
+        "FW": "forvet",
+    }.get(str(pos or "").upper(), "oyuncu")
+
+
+def _rotation_note(name: str) -> str:
+    key = _fold_token(name)
+    if "osimhen" in key:
+        return "Ligdeki net forvet; her kadronun sabit ismi."
+    if "talisca" in key:
+        return (
+            "Fenerbahçe hücumunda son dönem forma Muriqi’de. "
+            "Talisca kadroda beklenen puanı şişirir; sahaya çıkmazsa koltuk boş kalır."
+        )
+    if "vlahovic" in key:
+        return (
+            "Beşiktaş hücumunda ilk 11’de üretti. "
+            "TFF haftalık puanı yüksek; bütçe uyarsa kadroda aranır."
+        )
+    if "muriqi" in key:
+        return "Fenerbahçe hücumunda güncel forma burada; Talisca yerine bu koltuk okunur."
+    if "bouchouari" in key:
+        return (
+            "Son iki sezonda gol ve asist tabanı yok. "
+            "Kolay fikstür, üretim getirmeyen orta sahayı taşımaz."
+        )
+    if "joemendes" in key.replace(" ", "") or "joe mendes" in key:
+        return (
+            "Bu sezon defans performansı zayıf. Üç büyük dışında bu koltuk gerekçesiz kalır."
+        )
+    return ""
+
+
+def _player_case(player: dict[str, Any], *, slot: str) -> str:
+    name = _pname(player)
+    if not name:
+        return ""
+    team = _club_label(str(player.get("team") or ""))
+    pos = _pos_tr(str(player.get("position") or ""))
+    kind = _match_kind(player)
+    opp = str(player.get("fixture_opponent") or "").strip()
+    bits = [f"{name}, {team} {pos}, {slot}."]
+    note = _rotation_note(name)
+    folded = _fold_token(name)
+    if note:
+        bits.append(note)
+    if "osimhen" not in folded:
+        if note and opp:
+            bits.append(f"Bu hafta {_side_word(player)} {opp}.")
+        elif kind == "kolay" and opp:
+            if _is_core_club(str(player.get("team") or "")):
+                bits.append(
+                    f"Bu hafta {_side_word(player)} {opp}; rakip zayıf, üç büyük üretim burada aranır."
+                )
+            elif _is_big_club(str(player.get("team") or "")):
+                bits.append(
+                    f"Bu hafta {_side_word(player)} {opp}; üst sıra, alt sıra rakibe karşı. "
+                    "Yalnızca üretim tabanı olan isim tutulur."
+                )
+            else:
+                bits.append(
+                    f"Bu hafta {_side_word(player)} {opp}. Kolay fikstür tek başına yolcu ismi taşımaz."
+                )
+        elif kind == "derbi" and opp:
+            bits.append(
+                f"Bu hafta {_side_word(player)} {opp}; denk derbi. "
+                "Kalite tutulur, kaptan bu maça bağlanmaz."
+            )
+        elif kind == "zor" and opp:
+            bits.append(
+                f"Bu hafta {_side_word(player)} {opp}; rakip sert. "
+                "Zayıf tarafın kalecisi veya defansı bu koltuğu doldurmaz."
+            )
+        elif opp:
+            bits.append(f"Bu hafta {_side_word(player)} {opp}.")
+    own_pos = _num(player.get("table_pos"))
+    opp_pos = _num(player.get("opp_table_pos"))
+    n_teams = _num(player.get("table_n")) or 18.0
+    if own_pos and opp_pos:
+        if own_pos <= 6 and opp_pos >= n_teams - 4:
+            bits.append("Puan durumunda üst sıra, alt sıra rakibe karşı.")
+        elif own_pos >= n_teams - 3 and opp_pos <= 6:
+            bits.append("Bu sezon alt sıra; üst sıra rakibe karşı bu koltuk zayıf kalır.")
+    ga = _num(player.get("team_ga_pg"))
+    if (
+        str(player.get("position") or "").upper() in {"GK", "DF"}
+        and ga is not None
+        and ga >= 1.55
+    ):
+        bits.append("Bu sezon çok gol yiyor; temiz sayfa beklenmez.")
+    gf = _num(player.get("team_gf_pg"))
+    if (
+        str(player.get("position") or "").upper() in {"MF", "FW"}
+        and gf is not None
+        and gf >= 1.70
+        and own_pos is not None
+        and own_pos <= 6
+    ):
+        bits.append("Takım ligde gol atıyor; hücum burada aranır.")
+    gls = _num(player.get("gls_pa"))
+    ast = _num(player.get("ast_pa"))
+    if (
+        str(player.get("position") or "").upper() in {"MF", "FW"}
+        and gls is not None
+        and ast is not None
+        and (gls + ast) < 0.08
+        and "osimhen" not in folded
+        and "bouchouari" not in folded
+        and "talisca" not in folded
+    ):
+        bits.append("Geçen sezon gol ve asist tabanı zayıf.")
+    play = _num(player.get("play_probability"))
+    if play is not None and play < 0.45:
+        bits.append("Güncel forma kaydı zayıf; ilk 11’de tutulması doğru değil.")
+    return " ".join(bits)
+
+
 def _is_big_club(team: str) -> bool:
     folded = _club_fold(team)
+    if len(folded) < 4:
+        return False
     return any(key in folded or folded in key for key, _label in _BIG_CLUBS)
 
 
@@ -1231,10 +1677,114 @@ def _fixture_line(player: dict[str, Any]) -> str:
     if not name:
         return ""
     team = str(player.get("team") or "").strip()
-    band = _band_word(player)
+    kind = _match_kind(player)
     if not opp:
         return f"{name} ({team}), fikstür belirsiz"
-    return f"{name} ({team}), {_side_word(player)} {opp}, {band} fikstür"
+    if kind == "derbi":
+        return f"{name} ({team}), {_side_word(player)} {opp}, denk derbi"
+    if kind == "kolay":
+        return f"{name} ({team}), {_side_word(player)} {opp}, rakip zayıf"
+    if kind == "zor":
+        return f"{name} ({team}), {_side_word(player)} {opp}, rakip sert"
+    return f"{name} ({team}), {_side_word(player)} {opp}, denk maç"
+
+
+def _match_rank_note(players: list[dict[str, Any]]) -> str:
+    for player in players:
+        own = _num(player.get("table_pos"))
+        opp = _num(player.get("opp_table_pos"))
+        if own is None or opp is None:
+            continue
+        team = _club_label(str(player.get("team") or ""))
+        rival = str(player.get("fixture_opponent") or "").strip()
+        if not team or not rival:
+            continue
+        return (
+            f" Puan durumu: {team} {int(own)}., "
+            f"{_club_label(rival)} {int(opp)}."
+        )
+    return ""
+
+
+def _describe_match(group: dict[str, Any]) -> str:
+    home = str(group.get("home") or "")
+    away = str(group.get("away") or "")
+    players = [p for p in (group.get("players") or []) if isinstance(p, dict)]
+    if not players:
+        return ""
+    names = ", ".join(_pname(p) for p in players if _pname(p))
+    if not home or not away:
+        return f"{names}: fikstür bu hafta net değil."
+    title = f"{home}–{away}"
+    home_side = [p for p in players if _same_club(str(p.get("team") or ""), home)]
+    away_side = [p for p in players if _same_club(str(p.get("team") or ""), away)]
+    kinds = [_match_kind(p) for p in players]
+    derby_clubs = _is_core_club(home) and _is_core_club(away)
+    if "derbi" in kinds or derby_clubs:
+        both = []
+        if home_side:
+            both.append(", ".join(_pname(p) for p in home_side if _pname(p)))
+        if away_side:
+            both.append(", ".join(_pname(p) for p in away_side if _pname(p)))
+        sides = " ve ".join(bit for bit in both if bit)
+        who = f" {sides} aynı maçta." if sides else ""
+        gs_in = _is_core_club(home) and (
+            "galatasaray" in _club_fold(home) or "galatasaray" in _club_fold(away)
+        )
+        gs_fav = " Galatasaray kilit favori; sonucu yine ihtiyatlı okunur." if gs_in else ""
+        osi_here = any("osimhen" in _fold_token(_pname(p)) for p in players)
+        cap_note = (
+            " Kaptan Osimhen’de kilitlenir."
+            if osi_here
+            else " Kaptan bu maça bağlanmaz."
+        )
+        if home_side and away_side:
+            return (
+                f"{title}: denk derbi.{gs_fav}{who} "
+                "İki yakayı birden tutmak yanlıştır; üstün taraf kalır, karşı yaka düşer."
+                f"{cap_note}"
+            )
+        return (
+            f"{title}: denk derbi.{gs_fav}{who} "
+            "Kalite tutulur, karşı yakadan isim alınmaz."
+            f"{cap_note}"
+        )
+    kolay = [p for p in players if _match_kind(p) == "kolay"]
+    zor = [p for p in players if _match_kind(p) == "zor"]
+    rank = _match_rank_note(players)
+    if kolay and not zor:
+        strong = _club_label(str(kolay[0].get("team") or ""))
+        sample = kolay[0]
+        opp_pos = _num(sample.get("opp_table_pos"))
+        n_teams = _num(sample.get("table_n")) or 18.0
+        if opp_pos is not None and opp_pos >= n_teams - 4:
+            tail = " Alt sıra rakibe karşı üretim ve temiz sayfa burada aranır."
+        else:
+            tail = ""
+        return (
+            f"{title}: {strong} tarafı tutulur.{rank} "
+            f"Kadrodaki isimler: {names}.{tail}"
+        )
+    if zor and not kolay:
+        return (
+            f"{title}: sert rakip. {names} üretim tabanı ile tutulur; "
+            "bu maçtan yüksek TFF puanı beklenmez."
+        )
+    if home_side and away_side:
+        h_kind = _match_kind(home_side[0])
+        if h_kind == "kolay":
+            return (
+                f"{title}: {_club_label(home)} önde. "
+                f"{', '.join(_pname(p) for p in home_side if _pname(p))} önce okunur; "
+                f"{', '.join(_pname(p) for p in away_side if _pname(p))} aynı maçta geride kalır."
+            )
+        if h_kind == "zor":
+            return (
+                f"{title}: {_club_label(away)} önde. "
+                f"{', '.join(_pname(p) for p in away_side if _pname(p))} önce okunur; "
+                f"{', '.join(_pname(p) for p in home_side if _pname(p))} aynı maçta geride kalır."
+            )
+    return f"{title}: denk maç.{rank} {names}."
 
 
 def _avail_tr(code: str, news: str = "") -> str:
@@ -1266,20 +1816,44 @@ def _analysis(raw: dict[str, Any], public: dict[str, Any]) -> list[dict[str, Any
     bench = [p for p in (result.get("bench") or []) if isinstance(p, dict)]
     squad = [p for p in (result.get("squad") or []) if isinstance(p, dict)] or (xi + bench)
     cap = result.get("captain") or {}
+    if isinstance(cap, dict) and xi:
+        cap_name = _pname(cap)
+        src = next((p for p in xi if _pname(p) == cap_name), None)
+        if src:
+            cap = {**src, **cap}
+    vice = result.get("vice_captain") or {}
+    if isinstance(vice, dict) and xi:
+        vice_name = _pname(vice)
+        src = next((p for p in xi if _pname(p) == vice_name), None)
+        if src:
+            vice = {**src, **vice}
     card = dict(public.get("manager_card") or {})
     card["why"] = _card_sentence(card)
     public["manager_card"] = card
     comps = public.get("formation_comparisons") or []
     sections: list[dict[str, Any]] = []
+    fixtures = public.get("fixtures") or raw.get("fixtures") or []
+    match_pool = squad or xi
+    matches = _xi_matches(match_pool, fixtures if isinstance(fixtures, list) else [])
     total = result.get("xi_if_plays") or result.get("total_projected")
     bank = _num(result.get("bank"))
+    if matches:
+        paras = [_describe_match(group) for group in matches]
+        paras = [p for p in paras if p]
+        if paras:
+            sections.append(_sec("Maçlar", paras))
     if total is not None:
         ev = float(result.get("total_projected") or 0)
         paras = [
             (
                 f"İlk 11’in beklenen puanı {_pts(total)}. "
                 f"Seçim değeri {_pts(ev)}; yedek kulübesi {_pts(result.get('bench_projected') or 0)}."
-            )
+            ),
+            (
+                "Karttaki TFF puanı şans ve kırılma içerir. "
+                "Bir maçlık yüksek skor, ayağı kayan bir vuruş veya sekme ile şişer; "
+                "seçim takım gücü, rakip ve üretim tabanına bakılır."
+            ),
         ]
         if bank is not None:
             if bank >= 2.5:
@@ -1289,77 +1863,240 @@ def _analysis(raw: dict[str, Any], public: dict[str, Any]) -> list[dict[str, Any
                 )
             elif bank >= 0:
                 paras.append(f"Kasa {_mn(bank)} mn.")
-        homes = [p for p in xi if p.get("fixture_home") is True]
-        aways = [p for p in xi if p.get("fixture_home") is False]
-        if homes and aways and len(aways) >= len(homes) + 2:
-            paras.append(
-                f"İlk 11’de {len(aways)} deplasman, {len(homes)} iç saha var. "
-                "Deplasman ağırlığı, beklenen puanı daha kırılgan okutur."
-            )
-        if homes or aways:
-            paras.append(f"İlk 11’de {len(homes)} iç saha, {len(aways)} deplasman maçı var.")
-        bands = {"rahat": [], "dengeli": [], "sert": []}
+        club_n: dict[str, int] = {}
+        club_name: dict[str, str] = {}
+        club_kind: dict[str, str] = {}
+        for p in squad:
+            key = _club_fold(str(p.get("team") or ""))
+            if not key:
+                continue
+            club_n[key] = club_n.get(key, 0) + 1
+            club_name[key] = _club_label(str(p.get("team") or ""))
+            kind = _match_kind(p)
+            if key not in club_kind or kind == "kolay":
+                club_kind[key] = kind
+        stacked = [
+            (club_name[key], n, club_kind.get(key) or "denk")
+            for key, n in club_n.items()
+            if n >= 3 and _is_big_club(club_name[key])
+        ]
+        if stacked:
+            bits = []
+            for label, n, kind in stacked[:3]:
+                if kind == "kolay":
+                    bits.append(
+                        f"{label} kadrosundan {n} isim var. Kulüp tavanı üç; "
+                        "rakip zayıfken bu yığılma doğru okunur."
+                    )
+                elif kind == "derbi":
+                    bits.append(
+                        f"{label} kadrosundan {n} isim var. Derbide yığılma risklidir; "
+                        "üçüncü isim ancak üretim tabanı çok sağlamsa tutulur."
+                    )
+                else:
+                    bits.append(
+                        f"{label} kadrosundan {n} isim var. Kulüp tavanı üç; "
+                        "iyi oyuncu ve uygun fikstür varsa yığılma serbesttir."
+                    )
+            paras.extend(bits)
+        paras.append(
+            "Derbi yalnızca Galatasaray, Fenerbahçe ve Beşiktaş’ın kendi aralarındaki maçtır; "
+            "Trabzonspor veya Başakşehir derbi sayılmaz. "
+            "Sonucu tahmin edilmez, o yüzden temiz sayfa ve gol beklentisi ihtiyatlı tutulur. "
+            "Yasak değil: üretim tabanı sağlamsa derbiden oyuncu kadroda durur. "
+            "Galatasaray–Fenerbahçe ve Galatasaray–Beşiktaş’ta Galatasaray kilit favoridir; "
+            "bahis oranı aksi yönde olsa bile CS ve hücum bu tarafa kayar. "
+            "Aynı derbinin iki yakası 15’li kadroya alınmaz; her yakadan en fazla iki isim tutulur. "
+            "Denk maçta da aynı fikstürün iki yakası durmaz."
+        )
+        fav_bits = []
         for p in xi:
-            line = _fixture_line(p)
+            fav = str(p.get("odds_favorite") or "").strip()
+            team = str(p.get("team") or "")
+            if not fav or not team:
+                continue
+            if _club_fold(fav) == _club_fold(team):
+                win = _num(p.get("odds_p_win"))
+                btts = _num(p.get("odds_p_btts"))
+                name = _pname(p)
+                if name:
+                    extra = []
+                    if win:
+                        extra.append(f"galibiyet ~%{int(round(win * 100))}")
+                    if btts is not None and btts >= 0.55:
+                        extra.append("GG piyasası açık")
+                    elif btts is not None and btts <= 0.45:
+                        extra.append("GG hayır; CS aranır")
+                    fav_bits.append(
+                        name + (f" ({', '.join(extra)})" if extra else "")
+                    )
+        if fav_bits:
+            paras.append(
+                "İddia favori yakası tutulur: "
+                + ", ".join(fav_bits[:6])
+                + ". Rakip yaka (underdog) aynı maçta kadroya yığılmaz. "
+                "GG, 2.5 üst/alt ve korner piyasası temiz sayfa ile kurtarışı kaydırır."
+            )
+        paras.append(
+            "Kaleci ve defans, 2026/27 puan durumu, yenen gol ve maç bonusu için tutulur. "
+            "Galatasaray, Fenerbahçe, Beşiktaş, Trabzonspor burada aranır. "
+            "Samsun ve Kocaeli defansı kadroya girmez. "
+            "Bu sezon süre almamış yedek kaleci kulübeye yazılmaz; TFF’de o isim oyuna giremez."
+        )
+        backs = [
+            p
+            for p in xi
+            if str(p.get("position") or "").upper() in {"GK", "DF"}
+            and _is_big_club(str(p.get("team") or ""))
+            and _match_kind(p) == "kolay"
+        ]
+        if backs:
+            line = ", ".join(
+                f"{_pname(p)} ({_club_label(str(p.get('team') or ''))})"
+                for p in backs[:4]
+                if _pname(p)
+            )
             if line:
-                bands[_band_word(p)].append(line)
-        if bands["sert"]:
-            paras.append(
-                "Sert fikstürde tutulanlar: "
-                + "; ".join(bands["sert"][:4])
-                + ". Üretim tabanı rakibi karşılar; fikstür tek başına düşürmez."
-            )
-        if bands["rahat"]:
-            paras.append(
-                "Rahat fikstürle öne çıkanlar: "
-                + "; ".join(bands["rahat"][:4])
-                + ". Fiyat ve beklenen puan, rakip zayıf diye şişmez; ikisi birlikte okunur."
-            )
-        if bands["dengeli"] and not bands["sert"] and not bands["rahat"]:
-            paras.append("Fikstür bu hafta dengeli; seçim oyuncu üretimine daha yakın duruyor.")
-        xi_teams = {_club_fold(str(p.get("team") or "")) for p in xi}
-        missing = [label for key, label in _BIG_CLUBS if not any(key in t or t in key for t in xi_teams if t)]
-        if missing:
-            paras.append(
-                "Büyük kulüp XI’de yok: "
-                + ", ".join(missing)
-                + ". Yüksek fiyat bu haftanın beklenen puanına sığmayınca kasa, üretim ve fikstürü birlikte daha iyi taşıyan isme kayar."
-            )
-            bench_big = [p for p in bench if _is_big_club(str(p.get("team") or ""))]
-            if bench_big:
-                bits = ", ".join(
-                    f"{_pname(p)} ({p.get('team') or '—'}, {_pts(_if_plays(p))})"
-                    for p in bench_big[:3]
+                paras.append(
+                    f"Temiz sayfa ihtimali yüksek savunma: {line}. "
+                    "Kaleci ve defans burada aranır; kart beklenen puanda geri planda tutulur."
                 )
-                paras.append(f"Yedekte duran büyük kulüp isimleri: {bits}.")
+        ext = [p for p in xi if str(p.get("data_src") or "") == "external_prior"]
+        if ext:
+            line = ", ".join(_pname(p) for p in ext[:4] if _pname(p))
+            paras.append(
+                f"Dış ligden gelenler ({line}) Süper Lig fikstürüne çevrilerek okunur. "
+                "Eski ligin puanı burada geçerli değildir; rakip ve takım gücü esas alınır."
+            )
         paras.append(
             "Karttaki rakam beklenen puandır. Forma çıkmayan oyuncu bu tutarı getirmez."
         )
         sections.append(_sec("Haftalık okuma", paras))
+    if xi or bench:
+        paras = []
+        for player in xi:
+            line = _player_case(player, slot="ilk 11")
+            if line:
+                paras.append(line)
+        ordered_b = sorted(bench, key=_bench_sort_key)
+        for player in ordered_b:
+            line = _player_case(player, slot="yedek")
+            if line:
+                paras.append(line)
+        if paras:
+            sections.append(_sec("Kadro", paras))
+    haul_bits = []
+    haul_seen: set[str] = set()
+    haul_pool: list[dict[str, Any]] = []
+    for row in _tff_week_hauls():
+        haul_pool.append(row)
+    for row in raw.get("new_signings") or []:
+        if isinstance(row, dict):
+            haul_pool.append(row)
+    for pos in ("FW", "MF", "DF", "GK"):
+        for row in (raw.get("leaders") or {}).get(pos) or []:
+            if isinstance(row, dict):
+                haul_pool.append(row)
+    for pos in ("FW", "MF", "DF", "GK"):
+        for row in (public.get("leaders") or {}).get(pos) or []:
+            if isinstance(row, dict):
+                haul_pool.append(row)
+    for row in public.get("watch") or []:
+        if isinstance(row, dict):
+            haul_pool.append(row)
+    haul_pool.extend(squad)
+    in_squad = {_pname(p) for p in squad if _pname(p)}
+    haul_pool.sort(
+        key=lambda p: (
+            -(_num(p.get("tff_round_points")) or 0),
+            -(_num(p.get("tff_points")) or 0),
+            -(_num(p.get("tff_goals")) or 0),
+        )
+    )
+    for player in haul_pool:
+        name = _pname(player)
+        if not name or name in haul_seen:
+            continue
+        tff_n = _num(player.get("tff_points")) or 0
+        round_n = _num(player.get("tff_round_points")) or 0
+        gls_n = _num(player.get("tff_goals")) or 0
+        if tff_n < 8 and round_n < 8 and gls_n < 2:
+            continue
+        haul_seen.add(name)
+        line = f"{name} TFF {_pts(tff_n)}"
+        if gls_n:
+            line += f", {int(gls_n)} gol"
+        if name in in_squad:
+            line += ", kadroda"
+        else:
+            line += ", kadro dışı"
+        haul_bits.append(line)
+        if len(haul_bits) >= 5:
+            break
+    if haul_bits:
+        sections.append(
+            _sec(
+                "Bu hafta TFF",
+                [
+                    "Resmî TFF puanı yüksek isimler: " + "; ".join(haul_bits) + ".",
+                    "Bu okuma beklenen puandan ayrıdır. Haftalık üretim burada; "
+                    "kadro dışı ismi bütçe, kulüp tavanı veya beklenen puan kesmiş olabilir.",
+                ],
+            )
+        )
     if xi:
         ordered = sorted(xi, key=_if_plays, reverse=True)
         top = ", ".join(f"{_pname(p)} ({_pts(_if_plays(p))})" for p in ordered[:4])
         paras = [f"Yükü çekenler: {top}."]
+        easy_names = [
+            _pname(p)
+            for p in ordered
+            if _match_kind(p) == "kolay" and _pname(p)
+        ]
+        if easy_names:
+            paras.append(
+                "Rakibi zayıf olanlar önce okunur: "
+                + ", ".join(easy_names[:5])
+                + "."
+            )
+        derby_names = [
+            _pname(p)
+            for p in ordered
+            if _match_kind(p) == "derbi" and _pname(p)
+        ]
+        if len(derby_names) >= 2:
+            sides_by_fixture: dict[frozenset, set[str]] = {}
+            for p in ordered:
+                if _match_kind(p) != "derbi":
+                    continue
+                own = _club_fold(str(p.get("team") or ""))
+                rival = _club_fold(str(p.get("fixture_opponent") or ""))
+                if not own or not rival:
+                    continue
+                sides_by_fixture.setdefault(frozenset({own, rival}), set()).add(own)
+            both_sides = any(len(v) >= 2 for v in sides_by_fixture.values())
+            if both_sides:
+                paras.append(
+                    "Aynı derbide iki yaka birden duruyor. "
+                    + ", ".join(derby_names[:4])
+                    + ". Yeniden hesapta yalnızca üstün taraf kalır."
+                )
+            else:
+                paras.append(
+                    "Aynı derbide tutulanlar: "
+                    + ", ".join(derby_names[:4])
+                    + ". Karşı yakadan isim alınmaz; kaptan bu maça bağlanmaz."
+                )
         tail = [p for p in ordered if _if_plays(p) < 3.6]
         if tail:
             weak = ", ".join(f"{_pname(p)} ({_pts(_if_plays(p))})" for p in tail[:3])
             paras.append(
                 f"Zayıf halka: {weak}. Fikstür veya form düşerse bu koltuklar değişir."
             )
-        fixtures = [_fixture_line(p) for p in ordered[:6]]
-        fixtures = [line for line in fixtures if line]
-        if fixtures:
-            paras.append("Fikstür ve oyuncu: " + "; ".join(fixtures[:5]) + ".")
-        form_bits = []
-        for p in ordered[:5]:
-            form = p.get("tff_form")
-            if form not in (None, "", 0):
-                try:
-                    form_bits.append(f"{_pname(p)} {_pts(form)}")
-                except (TypeError, ValueError):
-                    continue
-        if form_bits:
-            paras.append("Son haftaların formu: " + ", ".join(form_bits[:4]) + ".")
+        fixtures_l = [_fixture_line(p) for p in ordered[:6]]
+        fixtures_l = [line for line in fixtures_l if line]
+        if fixtures_l:
+            paras.append("Fikstür ve oyuncu: " + "; ".join(fixtures_l[:5]) + ".")
         sections.append(_sec("İlk 11", paras))
     if cap:
         raw_pts = _if_plays(cap)
@@ -1372,17 +2109,51 @@ def _analysis(raw: dict[str, Any], public: dict[str, Any]) -> list[dict[str, Any
                 f"çift kaptan {_pts(raw_pts * 2)}, Tripleks {_pts(raw_pts * 3)}."
             )
         ]
+        if not (isinstance(vice, dict) and _pname(vice)) and xi:
+            vice = next((p for p in xi_sorted if _pname(p) != name), None)
+        if isinstance(vice, dict) and _pname(vice):
+            paras.append(
+                f"Yedek kaptan {_pname(vice)}. "
+                "As kaptan sahaya çıkmazsa bant ve 2 kat bu isme geçer."
+            )
+        cap_kind = _match_kind(cap) if isinstance(cap, dict) else "denk"
+        cap_fold = _fold_token(_pname(cap) if isinstance(cap, dict) else "")
+        osi_locked = "osimhen" in cap_fold
+        if osi_locked:
+            paras.append(
+                "Kaptan Osimhen’de kilitlenir; yedek kaptan başka bir isimdir."
+            )
         if cap.get("fixture_opponent"):
-            if cap.get("fixture_home") is True:
-                side = "iç sahada"
-            elif cap.get("fixture_home") is False:
-                side = "deplasmanda"
+            paras.append(
+                f"Bu hafta {_side_word(cap)} {cap.get('fixture_opponent')} var."
+            )
+        if cap_kind == "derbi":
+            if osi_locked:
+                paras.append(
+                    "Derbi ihtiyatı kadro seçiminde kalır; bant yine Osimhen’de durur."
+                )
             else:
-                side = "karşısında"
-            paras.append(f"Bu hafta {side} {cap.get('fixture_opponent')} var.")
-        if alt:
+                paras.append(
+                    "Derbi; kaptan farkı küçük kalır. Tek isme bağlamak doğru olmaz."
+                )
+        elif cap_kind == "kolay":
+            paras.append(
+                "Rakip zayıf. Kaptan, takımın hücum üstünlüğüne bağlanır; "
+                "geçmiş haftanın şişkin TFF puanına değil."
+            )
+        elif cap_kind == "zor":
+            paras.append(
+                "Sert rakip. Kaptan ancak üretim tabanı çok sağlamsa tutulur."
+            )
+        if alt and not osi_locked:
             gap = _if_plays(alt) - raw_pts
-            if gap >= 0.8:
+            alt_kind = _match_kind(alt)
+            if alt_kind == "kolay" and cap_kind == "derbi":
+                paras.append(
+                    f"{_pname(alt)} ({alt.get('team') or '—'}) rakibi daha zayıf; "
+                    f"beklenen {_pts(_if_plays(alt))}. Kaptan koltuğu bu isme daha yakın duruyor."
+                )
+            elif gap >= 0.8:
                 paras.append(
                     f"{_pname(alt)} ({alt.get('team') or '—'}) beklenen {_pts(_if_plays(alt))}; "
                     "kaptan koltuğu bu isme daha yakın duruyor."
@@ -1395,7 +2166,7 @@ def _analysis(raw: dict[str, Any], public: dict[str, Any]) -> list[dict[str, Any
             else:
                 paras.append(
                     f"İkinci aday {_pname(alt)}, {_pts(_if_plays(alt))}. "
-                    "Fark küçük; forma haberi netleşmeden kaptan tutulur."
+                    "Fark küçük; fikstür ve takım gücü netleşmeden kaptan tutulur."
                 )
         sections.append(_sec("Kaptan", paras))
     sections.append(_sec("Menajer kartı", [_card_sentence(card)]))
@@ -1440,18 +2211,31 @@ def _analysis(raw: dict[str, Any], public: dict[str, Any]) -> list[dict[str, Any
             paras.append("Seçilen diziliş, beklenen puanda önde duruyor.")
         sections.append(_sec("Diziliş", paras))
     if bench:
-        ordered_b = sorted(bench, key=_if_plays, reverse=True)
+        ordered_b = sorted(bench, key=_bench_sort_key)
         names = ", ".join(
-            f"{_pname(p)} ({_pts(_if_plays(p))})" for p in ordered_b[:4] if _pname(p)
+            (
+                f"KL {_pname(p)} ({_pts(_if_plays(p))})"
+                if str(p.get("position") or "").upper() == "GK"
+                else (
+                    f"{int(p['bench_rank'])}. {_pname(p)} ({_pts(_if_plays(p))})"
+                    if p.get("bench_rank")
+                    else f"{_pname(p)} ({_pts(_if_plays(p))})"
+                )
+            )
+            for p in ordered_b[:4]
+            if _pname(p)
         )
         if names:
             sections.append(
                 _sec(
                     "Yedekler",
                     [
-                        f"{names}.",
-                        "Yedek, sakatlık ve rotasyon için tutulur; ilk 11’den puan çalmaz. "
-                        "Tüm Takım Sahaya kartında bu isimler de puan alır.",
+                        f"Giriş sırası: {names}.",
+                        "TFF’de yedek kaleci ayrı durur; saha yedeği 1, 2, 3 diye sıralanır. "
+                        "İlk 11’de süre almayan biri varsa sistem bu sıraya bakar. "
+                        "1 süre almamışsa 2 kontrol edilir; 3, öndeki oynayan yedeğin önüne geçemez. "
+                        "Formasyon bozulacaksa o değişiklik yapılmaz. "
+                        "Tüm Takım Sahaya kartında kulübedeki oynayan isimler de puan alır.",
                     ],
                 )
             )
@@ -1459,7 +2243,16 @@ def _analysis(raw: dict[str, Any], public: dict[str, Any]) -> list[dict[str, Any
     if watch:
         bits = []
         for p in watch[:5]:
-            line = f"{_pname(p)} {_mn(p.get('price_m') or 0)} mn, beklenen {_pts(_if_plays(p))}"
+            line = f"{_pname(p)} {_mn(p.get('price_m') or 0)} mn"
+            if _if_plays(p) > 0:
+                line += f", beklenen {_pts(_if_plays(p))}"
+            else:
+                round_pts = _num(p.get("tff_round_points"))
+                total_pts = _num(p.get("tff_points"))
+                if round_pts is not None and round_pts > 0:
+                    line += f", TFF haftalık {_pts(round_pts)}"
+                elif total_pts is not None and total_pts > 0:
+                    line += f", TFF toplam {_pts(total_pts)}"
             sel = _num(p.get("selected_by"))
             if sel is not None and sel <= 12:
                 line += f", yüzde {int(round(sel))} seçilmiş"
@@ -1489,6 +2282,12 @@ def _public(raw: dict[str, Any]) -> dict[str, Any]:
             if cap.get(key):
                 cap[key] = _tidy_name(str(cap[key]))
         result["captain"] = cap
+    vice = result.get("vice_captain")
+    if isinstance(vice, dict):
+        for key in ("display_name", "player"):
+            if vice.get(key):
+                vice[key] = _tidy_name(str(vice[key]))
+        result["vice_captain"] = vice
     meta = dict(raw.get("meta") or {})
     meta.pop("fixture_context", None)
     leaders = {}
@@ -1501,8 +2300,19 @@ def _public(raw: dict[str, Any]) -> dict[str, Any]:
         for row in (result.get("squad") or result.get("xi") or [])
         if isinstance(row, dict)
     }
+    signed = [
+        row for row in (raw.get("new_signings") or []) if isinstance(row, dict)
+    ]
+    signed.sort(
+        key=lambda row: (
+            -float(row.get("tff_round_points") or 0),
+            -float(row.get("tff_points") or 0),
+            -float(row.get("tff_goals") or 0),
+            -float(row.get("pts_if_plays") or row.get("projected_pts") or 0),
+        )
+    )
     watch = []
-    for row in raw.get("new_signings") or []:
+    for row in signed:
         if not isinstance(row, dict):
             continue
         slim = _slim_player(row)
@@ -1531,6 +2341,10 @@ def _public(raw: dict[str, Any]) -> dict[str, Any]:
         "formation_comparisons": _formation_rows(raw),
         "account": account_public(),
     }
+    try:
+        _blend_watch_with_hauls(payload)
+    except Exception:
+        pass
     payload["analysis"] = _analysis(raw, payload)
     return _sanitize_payload(_with_formation_xi(payload))
 
@@ -1550,6 +2364,7 @@ def load_cached() -> None:
         return
     if isinstance(data, dict):
         try:
+            _blend_watch_with_hauls(data)
             data["analysis"] = _analysis({}, data)
         except Exception:
             pass
