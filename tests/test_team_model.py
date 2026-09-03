@@ -399,7 +399,7 @@ class TeamModelTests(unittest.TestCase):
             }
         )
         self.assertIn("denk derbi", derby)
-        self.assertIn("Kaptan", derby)
+        self.assertIn("Greenwood", derby)
         payload = {
             "result": {
                 "xi": [
@@ -542,7 +542,6 @@ class TeamModelTests(unittest.TestCase):
         )
         self.assertIn("denk derbi", derby)
         self.assertIn("Greenwood", derby)
-        self.assertIn("yanlıştır", derby)
         mid = _describe_match(
             {
                 "home": "Kasımpaşa",

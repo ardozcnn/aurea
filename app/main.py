@@ -114,6 +114,7 @@ def api_search(
     position: str | None = None,
     age_min: int | None = None,
     age_max: int | None = None,
+    live: bool = False,
 ):
     if not ready():
         raise HTTPException(409, "Motor henüz hazır değil.")
@@ -124,6 +125,7 @@ def api_search(
             position=position,
             age_min=age_min,
             age_max=age_max,
+            live=live,
         )
     }
 

@@ -228,14 +228,24 @@ def _normal_market_value(value: Any) -> int | None:
 
 _OVERLAY_MEM: dict[str, Any] | None = None
 _OVERLAY_AT = 0.0
+_OVERLAY_VER = 0
+
+
+def club_overlay_stamp() -> float:
+    return float(_OVERLAY_VER)
 
 
 def club_overlay_get() -> dict[str, Any]:
-    global _OVERLAY_MEM, _OVERLAY_AT
+    global _OVERLAY_MEM, _OVERLAY_AT, _OVERLAY_VER
     if _OVERLAY_MEM is not None and (time.time() - _OVERLAY_AT) < 45:
         return _OVERLAY_MEM
     raw = _get_cache("club-overlay:v1")
-    _OVERLAY_MEM = raw if isinstance(raw, dict) else {}
+    new = raw if isinstance(raw, dict) else {}
+    if _OVERLAY_MEM is None:
+        _OVERLAY_MEM = new
+    elif new != _OVERLAY_MEM:
+        _OVERLAY_MEM = new
+        _OVERLAY_VER += 1
     _OVERLAY_AT = time.time()
     return _OVERLAY_MEM
 
@@ -247,7 +257,7 @@ def club_overlay_put(
     club_name: str = "",
     league_id: str = "",
 ) -> None:
-    global _OVERLAY_MEM, _OVERLAY_AT
+    global _OVERLAY_MEM, _OVERLAY_AT, _OVERLAY_VER
     try:
         pid = int(player_id)
     except (TypeError, ValueError):
@@ -266,6 +276,7 @@ def club_overlay_put(
     }
     _OVERLAY_MEM = pack
     _OVERLAY_AT = time.time()
+    _OVERLAY_VER += 1
     _set_cache("club-overlay:v1", pack, ttl=30 * 24 * 3600)
 
 
@@ -823,8 +834,14 @@ def _wage_window(spell: dict[str, Any], today):
     start = _parse_tm_date(spell.get("arrived"))
     departed = _parse_tm_date(spell.get("departed"))
     until = _parse_tm_date(spell.get("contract_until"))
+    loan = bool(spell.get("loan") or spell.get("kind") == "kiralik")
     if departed:
         end = departed
+    elif loan:
+        year = today.year + (1 if today.month >= 7 else 0)
+        end = datetime(year, 6, 30).date()
+        if end < today:
+            end = datetime(today.year + 1, 6, 30).date()
     elif until:
         end = until
     else:
@@ -871,18 +888,24 @@ def _finish_spell(spell: dict[str, Any], today) -> dict[str, Any]:
 
 
 def _stamp_contract(career: dict[str, Any], profile: dict[str, Any] | None) -> None:
+    from app.slugs import club_names_match
+
     profile = profile or {}
     club = profile.get("club") if isinstance(profile.get("club"), dict) else {}
     until = _parse_tm_date((club or {}).get("contractExpires"))
     joined = _parse_tm_date(profile.get("joined"))
     today = datetime.now(timezone.utc).date()
+    club_name = str((club or {}).get("name") or "")
     for spell in career.get("current") or []:
         if not isinstance(spell, dict):
             continue
-        if joined and not _parse_tm_date(spell.get("arrived")):
-            spell["arrived"] = joined.isoformat()
-        if until:
-            spell["contract_until"] = until.isoformat()
+        loan = bool(spell.get("loan") or spell.get("kind") == "kiralik")
+        same = bool(club_name) and club_names_match(str(spell.get("club") or ""), club_name)
+        if same and not loan:
+            if joined and not _parse_tm_date(spell.get("arrived")):
+                spell["arrived"] = joined.isoformat()
+            if until:
+                spell["contract_until"] = until.isoformat()
         _finish_spell(spell, today)
 
 
@@ -943,13 +966,13 @@ def _apply_wage_pack(career: dict[str, Any], pack: dict[str, Any] | None) -> Non
                     bill = int(round(annual * max((end - today).days, 30) / 365.25))
                 else:
                     bill = annual
-                _write_wage_spell(spell, hits, bill, bonus, section)
+                _write_wage_spell(spell, hits, bill, bonus, section, today)
                 continue
             if end is None or end < start:
                 annual = int(hits[-1].get("annual_eur") or 0)
                 if annual <= 0:
                     continue
-                _write_wage_spell(spell, hits, annual, bonus, section)
+                _write_wage_spell(spell, hits, annual, bonus, section, today)
                 continue
             hits = sorted(hits, key=lambda row: int(row.get("year") or 0))
             bill = 0
@@ -978,7 +1001,7 @@ def _apply_wage_pack(career: dict[str, Any], pack: dict[str, Any] | None) -> Non
                 bill = int(round(int(used_rows[0].get("annual_eur") or 0) * max(days, 1) / 365.25))
             if not bill:
                 continue
-            _write_wage_spell(spell, used_rows, bill, bonus, section)
+            _write_wage_spell(spell, used_rows, bill, bonus, section, today)
 
 
 def _write_wage_spell(
@@ -987,24 +1010,44 @@ def _write_wage_spell(
     bill: int,
     bonus: Any,
     section: str,
+    today=None,
 ) -> None:
     annuals = [int(row.get("annual_eur") or 0) for row in used_rows if row.get("annual_eur")]
     last = used_rows[-1]
     weekly = last.get("weekly_eur")
-    spell["wage_annual"] = last.get("annual_eur")
+    base_annual = int(last.get("annual_eur") or (annuals[-1] if annuals else 0) or 0)
+    bonus_n = 0
+    if bonus and section == "current" and spell.get("ongoing"):
+        try:
+            bonus_n = int(bonus)
+        except (TypeError, ValueError):
+            bonus_n = 0
+        if bonus_n < 0:
+            bonus_n = 0
+    shown_annual = base_annual + bonus_n
+    spell["wage_annual"] = shown_annual if shown_annual else last.get("annual_eur")
     spell["wage_weekly"] = weekly
-    if len(set(annuals)) > 1:
+    if bonus_n:
+        spell["wage_bonus"] = bonus_n
+        spell["wage_bonus_label"] = format_eur(bonus_n)
+        spell["wage_label"] = f"{format_eur(shown_annual)} / yıl"
+    elif len(set(annuals)) > 1:
         spell["wage_label"] = f"{format_eur(min(annuals))}–{format_eur(max(annuals))} / yıl"
     elif annuals:
         spell["wage_label"] = f"{format_eur(annuals[0])} / yıl"
     else:
         spell["wage_label"] = "Açıklanmadı"
     spell["wage_weekly_label"] = f"{format_eur(weekly)} / hafta" if weekly else ""
+    if bonus_n:
+        now = today or datetime.now(timezone.utc).date()
+        _start, end = _wage_window(spell, now)
+        if end and end > now:
+            days = max((end - now).days, 1)
+        else:
+            days = 365
+        bill = int(bill) + int(round(bonus_n * days / 365.25))
     spell["wage_total"] = bill
     spell["wage_total_label"] = format_eur(bill)
-    if bonus and section == "current" and spell.get("ongoing"):
-        spell["wage_bonus"] = int(bonus)
-        spell["wage_bonus_label"] = format_eur(bonus)
     fee = spell.get("fee")
     kind = str(spell.get("kind") or "")
     fee_part = None
@@ -1065,12 +1108,29 @@ def _player_career(player_id: str) -> dict:
     if not isinstance(raw, list) or not raw:
         return empty
     today = datetime.now(timezone.utc).date()
+    career = _career_from_transfer_list(raw, today)
+    fee_sum = data.get("feeSum")
+    parsed_sum = None
+    try:
+        if fee_sum is not None and fee_sum == fee_sum:
+            parsed_sum = int(fee_sum)
+    except (TypeError, ValueError):
+        parsed_sum = parse_euro(str(data.get("formattedFeeSum") or ""))
+    career["fee_sum"] = parsed_sum
+    career["fee_sum_label"] = format_eur(parsed_sum) if parsed_sum else ""
+    return career
+
+
+def _career_from_transfer_list(raw: list, today) -> dict[str, Any]:
     spells: list[dict[str, Any]] = []
     open_map: dict[str, dict[str, Any]] = {}
     for item in reversed(raw):
         if not isinstance(item, dict):
             continue
         arrived = str(item.get("dateUnformatted") or "")[:10] or None
+        arrived_date = _parse_tm_date(arrived)
+        if arrived_date and arrived_date > today:
+            continue
         src = _club_side(item.get("from"))
         dst = _club_side(item.get("to"))
         kind, fee = _transfer_kind(str(item.get("fee") or ""))
@@ -1144,20 +1204,30 @@ def _player_career(player_id: str) -> dict:
             current.append(spell)
         else:
             former.append(spell)
-    fee_sum = data.get("feeSum")
-    parsed_sum = None
-    try:
-        if fee_sum is not None and fee_sum == fee_sum:
-            parsed_sum = int(fee_sum)
-    except (TypeError, ValueError):
-        parsed_sum = parse_euro(str(data.get("formattedFeeSum") or ""))
+    loans = [s for s in current if s.get("loan") or s.get("kind") == "kiralik"]
+    if loans and len(current) > 1:
+        keep = loans[0]
+        rest = [s for s in current if s is not keep]
+        for extra in rest:
+            extra["ongoing"] = False
+            _finish_spell(extra, today)
+            former.insert(0, extra)
+        current = [keep]
     return {
         "current": current,
         "former": former,
         "youth": youth_rows,
-        "fee_sum": parsed_sum,
-        "fee_sum_label": format_eur(parsed_sum) if parsed_sum else "",
+        "fee_sum": None,
+        "fee_sum_label": "",
     }
+
+
+def playing_club_from_career(career: dict[str, Any] | None) -> dict[str, Any] | None:
+    current = [s for s in ((career or {}).get("current") or []) if isinstance(s, dict)]
+    if not current:
+        return None
+    loan = next((s for s in current if s.get("loan") or s.get("kind") == "kiralik"), None)
+    return loan or current[0]
 
 
 def _skeleton_bundle() -> dict[str, Any]:
@@ -1272,7 +1342,7 @@ def player_bundle(
     club: str | None = None,
 ) -> dict:
     pid = str(player_id)
-    key = f"bundle:v7:{pid}"
+    key = f"bundle:v8:{pid}"
     cached = _get_cache(key)
     if cached and _bundle_ready(cached):
         return cached

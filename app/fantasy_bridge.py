@@ -1728,27 +1728,9 @@ def _describe_match(group: dict[str, Any]) -> str:
             both.append(", ".join(_pname(p) for p in away_side if _pname(p)))
         sides = " ve ".join(bit for bit in both if bit)
         who = f" {sides} aynı maçta." if sides else ""
-        gs_in = _is_core_club(home) and (
-            "galatasaray" in _club_fold(home) or "galatasaray" in _club_fold(away)
-        )
-        gs_fav = " Galatasaray kilit favori; sonucu yine ihtiyatlı okunur." if gs_in else ""
-        osi_here = any("osimhen" in _fold_token(_pname(p)) for p in players)
-        cap_note = (
-            " Kaptan Osimhen’de kilitlenir."
-            if osi_here
-            else " Kaptan bu maça bağlanmaz."
-        )
         if home_side and away_side:
-            return (
-                f"{title}: denk derbi.{gs_fav}{who} "
-                "İki yakayı birden tutmak yanlıştır; üstün taraf kalır, karşı yaka düşer."
-                f"{cap_note}"
-            )
-        return (
-            f"{title}: denk derbi.{gs_fav}{who} "
-            "Kalite tutulur, karşı yakadan isim alınmaz."
-            f"{cap_note}"
-        )
+            return f"{title}: denk derbi.{who}"
+        return f"{title}: denk derbi.{who} Kalite tutulur."
     kolay = [p for p in players if _match_kind(p) == "kolay"]
     zor = [p for p in players if _match_kind(p) == "zor"]
     rank = _match_rank_note(players)
@@ -1899,16 +1881,6 @@ def _analysis(raw: dict[str, Any], public: dict[str, Any]) -> list[dict[str, Any
                         "iyi oyuncu ve uygun fikstür varsa yığılma serbesttir."
                     )
             paras.extend(bits)
-        paras.append(
-            "Derbi yalnızca Galatasaray, Fenerbahçe ve Beşiktaş’ın kendi aralarındaki maçtır; "
-            "Trabzonspor veya Başakşehir derbi sayılmaz. "
-            "Sonucu tahmin edilmez, o yüzden temiz sayfa ve gol beklentisi ihtiyatlı tutulur. "
-            "Yasak değil: üretim tabanı sağlamsa derbiden oyuncu kadroda durur. "
-            "Galatasaray–Fenerbahçe ve Galatasaray–Beşiktaş’ta Galatasaray kilit favoridir; "
-            "bahis oranı aksi yönde olsa bile CS ve hücum bu tarafa kayar. "
-            "Aynı derbinin iki yakası 15’li kadroya alınmaz; her yakadan en fazla iki isim tutulur. "
-            "Denk maçta da aynı fikstürün iki yakası durmaz."
-        )
         fav_bits = []
         for p in xi:
             fav = str(p.get("odds_favorite") or "").strip()
@@ -1939,9 +1911,7 @@ def _analysis(raw: dict[str, Any], public: dict[str, Any]) -> list[dict[str, Any
             )
         paras.append(
             "Kaleci ve defans, 2026/27 puan durumu, yenen gol ve maç bonusu için tutulur. "
-            "Galatasaray, Fenerbahçe, Beşiktaş, Trabzonspor burada aranır. "
-            "Samsun ve Kocaeli defansı kadroya girmez. "
-            "Bu sezon süre almamış yedek kaleci kulübeye yazılmaz; TFF’de o isim oyuna giremez."
+            "Galatasaray, Fenerbahçe, Beşiktaş, Trabzonspor burada aranır."
         )
         backs = [
             p
@@ -2112,30 +2082,16 @@ def _analysis(raw: dict[str, Any], public: dict[str, Any]) -> list[dict[str, Any
         if not (isinstance(vice, dict) and _pname(vice)) and xi:
             vice = next((p for p in xi_sorted if _pname(p) != name), None)
         if isinstance(vice, dict) and _pname(vice):
-            paras.append(
-                f"Yedek kaptan {_pname(vice)}. "
-                "As kaptan sahaya çıkmazsa bant ve 2 kat bu isme geçer."
-            )
+            paras.append(f"Yedek kaptan {_pname(vice)}.")
         cap_kind = _match_kind(cap) if isinstance(cap, dict) else "denk"
         cap_fold = _fold_token(_pname(cap) if isinstance(cap, dict) else "")
         osi_locked = "osimhen" in cap_fold
-        if osi_locked:
-            paras.append(
-                "Kaptan Osimhen’de kilitlenir; yedek kaptan başka bir isimdir."
-            )
         if cap.get("fixture_opponent"):
             paras.append(
                 f"Bu hafta {_side_word(cap)} {cap.get('fixture_opponent')} var."
             )
         if cap_kind == "derbi":
-            if osi_locked:
-                paras.append(
-                    "Derbi ihtiyatı kadro seçiminde kalır; bant yine Osimhen’de durur."
-                )
-            else:
-                paras.append(
-                    "Derbi; kaptan farkı küçük kalır. Tek isme bağlamak doğru olmaz."
-                )
+            paras.append("Derbi; kaptan farkı küçük kalır.")
         elif cap_kind == "kolay":
             paras.append(
                 "Rakip zayıf. Kaptan, takımın hücum üstünlüğüne bağlanır; "
@@ -2205,7 +2161,7 @@ def _analysis(raw: dict[str, Any], public: dict[str, Any]) -> list[dict[str, Any
                 f"En yüksek okuma {best.get('formation')} ({_pts(best.get('expected_pts') or 0)})."
             )
             if delta >= 0.6:
-                extra += f" Fark {_pts(delta)} puan; kilitlenmiş isim veya kart kısıtı seçimi kaydırmış olabilir."
+                extra += f" Fark {_pts(delta)} puan."
             paras.append(extra)
         else:
             paras.append("Seçilen diziliş, beklenen puanda önde duruyor.")
@@ -2231,11 +2187,6 @@ def _analysis(raw: dict[str, Any], public: dict[str, Any]) -> list[dict[str, Any
                     "Yedekler",
                     [
                         f"Giriş sırası: {names}.",
-                        "TFF’de yedek kaleci ayrı durur; saha yedeği 1, 2, 3 diye sıralanır. "
-                        "İlk 11’de süre almayan biri varsa sistem bu sıraya bakar. "
-                        "1 süre almamışsa 2 kontrol edilir; 3, öndeki oynayan yedeğin önüne geçemez. "
-                        "Formasyon bozulacaksa o değişiklik yapılmaz. "
-                        "Tüm Takım Sahaya kartında kulübedeki oynayan isimler de puan alır.",
                     ],
                 )
             )

@@ -10,9 +10,13 @@ const gq = document.getElementById("gq");
 let ready = false;
 let bootTimer = null;
 let searchClock;
+let searchAbort = null;
 let fantasyClock;
 let viewGen = 0;
 let methodReturn = "/";
+const apiMemo = new Map();
+const apiInflight = new Map();
+const API_MEMO_MS = 90000;
 
 function foldTr(value) {
   return String(value ?? "")
@@ -114,14 +118,38 @@ function waitScreen(title, body) {
 }
 
 async function api(path, options) {
-  const res = await fetch(path, options);
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const detail = data.detail;
-    const msg = typeof detail === "string" ? detail : (data.message || `İstek başarısız (${res.status})`);
-    throw new Error(msg);
+  const method = String(options?.method || "GET").toUpperCase();
+  const cacheable = method === "GET" && !path.startsWith("/api/search") && !path.startsWith("/api/status") && !path.startsWith("/api/players/");
+  if (cacheable) {
+    const hit = apiMemo.get(path);
+    if (hit && Date.now() - hit.t < API_MEMO_MS) return hit.data;
+    const pending = apiInflight.get(path);
+    if (pending) return pending;
   }
-  return data;
+  const run = (async () => {
+    try {
+      const res = await fetch(path, options);
+      if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = data.detail;
+        const msg = typeof detail === "string" ? detail : (data.message || `İstek başarısız (${res.status})`);
+        throw new Error(msg);
+      }
+      if (cacheable) apiMemo.set(path, { t: Date.now(), data });
+      return data;
+    } finally {
+      if (cacheable) apiInflight.delete(path);
+    }
+  })();
+  if (cacheable) apiInflight.set(path, run);
+  return run;
+}
+
+function prefetchTabs() {
+  ["/api/pulse", "/api/clubs", "/api/leagues", "/api/scout", "/api/market?", "/api/yontem"].forEach((path) => {
+    api(path).catch(() => {});
+  });
 }
 
 function hashParts() {
@@ -422,7 +450,7 @@ function careerCopy(s) {
   if (s && s.wage_annual) {
     bits.push(`Açık rapordaki taban maaş ${s.wage_label}${s.wage_weekly_label ? ` (${s.wage_weekly_label})` : ""}.`);
     if (s.wage_total_label) bits.push(`Sözleşme süresine göre maaş yükü ${s.wage_total_label}.`);
-    if (s.wage_bonus_label) bits.push(`Aynı raporda yıllık bonus ${s.wage_bonus_label}; toplam maliyete eklenmez.`);
+    if (s && s.wage_bonus_label) bits.push(`Yıllık tutara ${s.wage_bonus_label} bonus dahil.`);
     if (s.total_scope === "tam") bits.push("Toplam maliyet, açıklanan bonservis ile bu maaş yükünün toplamıdır.");
     else bits.push("Bonservis bu dönem için yok veya açıklanmadı; toplam yalnızca maaş yüküdür.");
   } else {
@@ -754,12 +782,18 @@ function tmMove(history) {
 
 async function ensureReady() {
   const skipBoot = routeParts()[0] === "fantezi" || routeParts()[0] === "yontem";
+  if (ready) {
+    boot.classList.add("hidden");
+    boot.setAttribute("aria-hidden", "true");
+    return true;
+  }
   const s = await api("/api/status");
   ready = !!s.ready;
   if (ready || skipBoot) {
     boot.classList.add("hidden");
     boot.setAttribute("aria-hidden", "true");
     if (bootTimer) clearInterval(bootTimer);
+    if (ready) prefetchTabs();
     return ready;
   }
   boot.classList.remove("hidden");
@@ -787,7 +821,9 @@ async function runSearch(q, into) {
     return;
   }
   try {
-    const data = await api(`/api/search?q=${encodeURIComponent(q)}`);
+    if (searchAbort) searchAbort.abort();
+    searchAbort = new AbortController();
+    const data = await api(`/api/search?q=${encodeURIComponent(q)}`, { signal: searchAbort.signal });
     const active = document.activeElement;
     const typing = active === gq || active?.id === "hq" || active?.id === "aq" || active?.id === "gq";
     if (!typing && into === drop) {
@@ -808,6 +844,7 @@ async function runSearch(q, into) {
       placeDrop(active);
     }
   } catch (ex) {
+    if (ex && (ex.name === "AbortError" || ex.message === "Aborted")) return;
     into.innerHTML = `<p class="sub" style="padding:16px">${esc(ex.message || "Arama şu an kullanılamıyor.")}</p>`;
     into.classList.remove("hidden");
     if (into === drop) {
@@ -820,7 +857,7 @@ async function runSearch(q, into) {
 gq.addEventListener("input", () => {
   syncNavSearch();
   clearTimeout(searchClock);
-  searchClock = setTimeout(() => runSearch(gq.value.trim(), drop), 160);
+  searchClock = setTimeout(() => runSearch(gq.value.trim(), drop), 80);
 });
 gq.addEventListener("focus", () => {
   syncNavSearch();
@@ -1021,7 +1058,7 @@ function renderHome(pulse) {
   const hq = document.getElementById("hq");
   hq.addEventListener("input", () => {
     clearTimeout(searchClock);
-    searchClock = setTimeout(() => runSearch(hq.value.trim(), drop), 160);
+    searchClock = setTimeout(() => runSearch(hq.value.trim(), drop), 80);
   });
   hq.focus();
 }
@@ -1080,7 +1117,7 @@ async function renderSearch(gen) {
     if (query.length < 2) { box.innerHTML = `<p class="sub">En az iki harf yazın veya bir Transfermarkt adresi yapıştırın.</p>`; return; }
     box.innerHTML = waitScreen("Aranıyor", "Kayıtlar ve Transfermarkt taranıyor.");
     try {
-      const data = await api(`/api/search?${extra.toString()}`);
+      const data = await api(`/api/search?${extra.toString()}&live=1`);
       if (gen !== viewGen) return;
       const rows = data.results || [];
       if (submit) {
@@ -1118,7 +1155,9 @@ async function renderMarket(preset = {}, gen) {
   const q = { ...queryFromHash(), ...preset };
   const params = new URLSearchParams();
   ["league", "position", "direction", "q", "sort", "page"].forEach((k) => { if (q[k]) params.set(k, q[k]); });
-  const data = await api(`/api/market?${params.toString()}`);
+  const marketPath = `/api/market?${params.toString()}`;
+  if (!apiMemo.has(marketPath)) view.innerHTML = waitScreen("Piyasa", "Liste hazırlanıyor.");
+  const data = await api(marketPath);
   if (gen !== viewGen) return;
   const leagues = (await api("/api/leagues")).leagues || [];
   if (gen !== viewGen) return;
@@ -1194,8 +1233,10 @@ async function renderMarket(preset = {}, gen) {
 }
 
 async function renderLeagues(gen) {
+  if (!apiMemo.has("/api/leagues")) view.innerHTML = waitScreen("Ligler", "Ligler hazırlanıyor.");
   const data = await api("/api/leagues");
   if (gen !== viewGen) return;
+  const leagues = data.leagues || [];
   const card = (l) => `
     <a class="league" href="/lig/${esc(l.id)}">
       ${leagueCrest(l)}
@@ -1204,12 +1245,26 @@ async function renderLeagues(gen) {
         <span>${esc(fmtCount(l.players))} oyuncu${l.country ? " · " + esc(l.country) : ""}</span>
       </div>
     </a>`;
+  const paint = (rows) => {
+    const box = document.getElementById("league-list");
+    if (!box) return;
+    box.innerHTML = rows.map(card).join("") || `<p class="sub">Lig yok.</p>`;
+  };
   view.innerHTML = `
     <section class="panel page-head">
       <h1>Ligler</h1>
+      <p class="lede">Bir lige girin. Piyasa listesi o ligin oyuncularını açar.</p>
+      <form class="filters" id="league-filt">
+        <input id="league-q" placeholder="Lig ara" />
+      </form>
     </section>
-    <div class="leagues">${(data.leagues || []).map(card).join("")}</div>
+    <div id="league-list" class="leagues"></div>
   `;
+  paint(leagues);
+  document.getElementById("league-q").addEventListener("input", (e) => {
+    const n = foldTr(e.target.value.trim());
+    paint(n ? leagues.filter((l) => clubTextMatch(l.name, n) || clubTextMatch(l.country, n) || clubTextMatch(l.id, n)) : leagues);
+  });
 }
 
 async function renderPlayer(id, gen) {
@@ -1723,7 +1778,7 @@ async function renderFantasy(gen) {
     ${payload ? `
       <div class="tri fantasy-meta">
         <div class="price-card hero"><div class="k">İlk 11</div><div class="n">${esc(fmtOne(result.xi_if_plays || result.total_projected || 0))}</div><div class="hint">Seçim değeri ${esc(fmtOne(result.total_projected || 0))} · yedek ${esc(fmtOne(result.bench_projected || 0))}</div></div>
-        <div class="price-card"><div class="k">Kaptan</div><div class="n">${esc(tidyName(result.captain?.display_name || result.captain?.player || "—"))}</div><div class="hint">${esc(metaJoin(result.captain?.team || "", fxPts(result.captain) != null ? fxPtsLabel(result.captain) + " p" : "") || "—")}${viceLabel ? `<br>Yedek kaptan ${esc(viceLabel)}. As çıkmazsa 2 kat.` : ""}</div></div>
+        <div class="price-card"><div class="k">Kaptan</div><div class="n">${esc(tidyName(result.captain?.display_name || result.captain?.player || "—"))}</div><div class="hint">${esc(metaJoin(result.captain?.team || "", fxPts(result.captain) != null ? fxPtsLabel(result.captain) + " p" : "") || "—")}${viceLabel ? `<br>Yedek kaptan ${esc(viceLabel)}.` : ""}</div></div>
         <div class="price-card"><div class="k">Menajer kartı</div><div class="n">${esc(card.use ? (card.card || "Kullan") : "Bu hafta yok")}</div><div class="hint">${esc(card.why || "Bu hafta menajer kartı kullanmayın.")}</div></div>
       </div>
       ${comps.length ? `<div class="group"><h3>Diziliş karşılaştırması</h3>
@@ -1921,16 +1976,19 @@ function bindPicker(inputId, boxId, onPick) {
     const q = input.value.trim();
     if (q.length < 2) { box.innerHTML = ""; box.classList.add("hidden"); return; }
     try {
-      const data = await api(`/api/search?q=${encodeURIComponent(q)}`);
+      if (searchAbort) searchAbort.abort();
+      searchAbort = new AbortController();
+      const data = await api(`/api/search?q=${encodeURIComponent(q)}`, { signal: searchAbort.signal });
       paint(data.results || []);
     } catch (ex) {
-      box.innerHTML = `<p class="sub" style="padding:12px">${esc(ex.message)}</p>`;
+      if (ex && (ex.name === "AbortError" || ex.message === "Aborted")) return;
+      box.innerHTML = `<p class="error">${esc(ex.message)}</p>`;
       box.classList.remove("hidden");
     }
   };
   input.addEventListener("input", () => {
     clearTimeout(clock);
-    clock = setTimeout(run, 140);
+    clock = setTimeout(run, 80);
   });
   input.addEventListener("keydown", (e) => {
     if (e.key !== "Enter") return;
@@ -2009,6 +2067,7 @@ async function renderCompare(gen) {
 }
 
 async function renderClubs(gen) {
+  if (!apiMemo.has("/api/clubs")) view.innerHTML = waitScreen("Kulüpler", "Kulüp listesi hazırlanıyor.");
   const data = await api("/api/clubs");
   if (gen !== viewGen) return;
   const clubs = data.clubs || [];
@@ -2131,6 +2190,7 @@ async function render() {
     else if (parts[0] === "kulup" && parts[1]) await renderClub(parts[1], gen);
     else if (parts[0] === "karsilastir") { go("/", true); return; }
     else {
+      if (!apiMemo.has("/api/pulse")) view.innerHTML = waitScreen("Pano", "Özet hazırlanıyor.");
       const pulse = await api("/api/pulse");
       if (gen !== viewGen) return;
       renderHome(pulse);

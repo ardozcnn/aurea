@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import threading
+import time
 from typing import Any
 
 import numpy as np
@@ -29,9 +30,11 @@ from app.live_fotmob import player_dossier
 from app.live_tm import (
     club_overlay_get,
     club_overlay_put,
+    club_overlay_stamp,
     current_season_totals,
     open_injury_days,
     player_bundle,
+    playing_club_from_career,
     resolve_club_id,
     search_players,
 )
@@ -56,15 +59,80 @@ _LOCK = threading.Lock()
 _UNIVERSE: pd.DataFrame | None = None
 _ENGINE: Engine | None = None
 _OWNERS_MEM: dict[int, str] = {}
+_CATALOG: pd.DataFrame | None = None
+_VIEW: pd.DataFrame | None = None
+_VIEW_KEY: float | None = None
+_PACKS: dict[str, tuple[float, Any]] = {}
+_PACK_TTL = 180.0
+_BUILD = threading.RLock()
+
+
+def _clear_view() -> None:
+    global _CATALOG, _VIEW, _VIEW_KEY
+    with _LOCK:
+        _CATALOG = None
+        _VIEW = None
+        _VIEW_KEY = None
+        _PACKS.clear()
+
+
+def _pack_get(key: str) -> Any | None:
+    hit = _PACKS.get(key)
+    if not hit:
+        return None
+    ts, val = hit
+    if time.time() - ts > _PACK_TTL:
+        return None
+    return val
+
+
+def _pack_put(key: str, val: Any) -> Any:
+    _PACKS[key] = (time.time(), val)
+    return val
+
+
+def _owners() -> dict[int, str]:
+    global _OWNERS_MEM
+    if _OWNERS_MEM:
+        return _OWNERS_MEM
+    try:
+        _OWNERS_MEM = _club_id_owners(universe())
+    except Exception:
+        _OWNERS_MEM = {}
+    return _OWNERS_MEM
+
+
+def _warm_packs() -> None:
+    try:
+        leagues()
+        club_list()
+        pulse()
+        scout()
+        market()
+    except Exception:
+        pass
 
 
 def set_store(frame: pd.DataFrame, engine: Engine) -> None:
-    global _UNIVERSE, _ENGINE
+    global _UNIVERSE, _ENGINE, _OWNERS_MEM
     scored = score_universe(frame, engine)
     scored = _ranks(scored)
+    scored["_name_fold"] = scored["name"].fillna("").astype(str).map(fold_tr)
+    if "player_code" in scored.columns:
+        scored["_code_fold"] = scored["player_code"].fillna("").astype(str).map(fold_tr)
+    else:
+        scored["_code_fold"] = scored["_name_fold"]
+    if "current_club_name" in scored.columns:
+        scored["_club_fold"] = scored["current_club_name"].fillna("").astype(str).map(fold_tr)
+    else:
+        scored["_club_fold"] = ""
+    owners = _club_id_owners(scored)
     with _LOCK:
         _UNIVERSE = scored
         _ENGINE = engine
+        _OWNERS_MEM = owners
+    _clear_view()
+    threading.Thread(target=_warm_packs, daemon=True).start()
 
 
 def ready() -> bool:
@@ -178,32 +246,39 @@ def _trusted_club_id(club_id: Any, club_name: str, owners: dict[int, str]) -> in
 
 
 def _fix_club_ids(df: pd.DataFrame) -> pd.DataFrame:
+    global _OWNERS_MEM
     if df.empty or "current_club_id" not in df.columns:
         return df
-    global _OWNERS_MEM
-    owners = _club_id_owners(df)
-    _OWNERS_MEM = owners
+    owners = _OWNERS_MEM or _club_id_owners(df)
+    if not _OWNERS_MEM:
+        _OWNERS_MEM = owners
     if not owners:
         return df
     cids = pd.to_numeric(df["current_club_id"], errors="coerce")
-    names = df["current_club_name"].fillna("").astype(str)
-    keep: list[bool] = []
-    for cid, name in zip(cids.tolist(), names.tolist()):
-        if cid is None:
-            keep.append(True)
-            continue
-        try:
-            if cid != cid:
-                keep.append(True)
-                continue
-        except Exception:
-            keep.append(True)
-            continue
-        keep.append(_trusted_club_id(cid, name, owners) is not None)
-    if all(keep):
+    as_int = pd.Series(pd.array(cids.round(), dtype="Int64"), index=df.index)
+    owner_name = as_int.map(owners)
+    if "_club_fold" in df.columns:
+        name_fold = df["_club_fold"].fillna("").astype(str)
+    else:
+        name_fold = df["current_club_name"].fillna("").astype(str).map(fold_tr)
+    uniq = {str(v): fold_tr(v) for v in owner_name.dropna().unique().tolist()}
+    owner_fold = owner_name.where(owner_name.notna(), "").astype(str).map(lambda v: uniq.get(v, ""))
+    empty = (name_fold == "") | (owner_fold == "")
+    equal = ~empty & (name_fold == owner_fold)
+    has_owner = owner_name.notna() & owner_name.astype(str).ne("")
+    need_prefix = has_owner & ~empty & ~equal
+    match = equal.copy()
+    if bool(need_prefix.any()):
+        nf = name_fold.loc[need_prefix].tolist()
+        of = owner_fold.loc[need_prefix].tolist()
+        match.loc[need_prefix] = [
+            a.startswith(b + " ") or b.startswith(a + " ") for a, b in zip(nf, of)
+        ]
+    keep = cids.isna() | ((cids > 0) & (~has_owner | match))
+    if bool(keep.all()):
         return df
     out = df.copy()
-    out.loc[[not ok for ok in keep], "current_club_id"] = pd.NA
+    out.loc[~keep.to_numpy(), "current_club_id"] = pd.NA
     return out
 
 
@@ -242,12 +317,7 @@ def card(row: pd.Series) -> dict[str, Any]:
         overlay = club_overlay_get().get(str(int(pid))) or {}
     club_name = str(overlay.get("club") or row.get("current_club_name") or "")
     club_id = overlay.get("club_id") if overlay.get("club_id") else row.get("current_club_id")
-    owners = _OWNERS_MEM or {}
-    if not owners and club_id is not None:
-        try:
-            owners = _club_id_owners(universe())
-        except Exception:
-            owners = {}
+    owners = _owners()
     trusted = _trusted_club_id(club_id, club_name, owners) if club_id is not None else None
     if club_id is not None and owners:
         club_id = trusted
@@ -313,6 +383,7 @@ def search(
     position: str | None = None,
     age_min: int | None = None,
     age_max: int | None = None,
+    live: bool = False,
 ) -> list[dict]:
     raw = (query or "").strip()
     tm_id = parse_tm_id(raw)
@@ -341,8 +412,14 @@ def search(
         return []
     club_hits: list[dict[str, Any]] = []
     seen_clubs: set[str] = set()
+    clubs_pack = _pack_get("clubs")
+    if live and clubs_pack is None:
+        try:
+            clubs_pack = club_list()
+        except Exception:
+            clubs_pack = None
     try:
-        for club in club_list().get("clubs") or []:
+        for club in (clubs_pack or {}).get("clubs") or []:
             name = str(club.get("name") or "")
             rank = club_query_hit(name, raw)
             if rank is None:
@@ -371,10 +448,16 @@ def search(
     except Exception:
         club_hits = []
     df = universe()
-    names = df["name"].astype("string").str.lower().fillna("")
-    code = df["player_code"].astype("string").str.lower().fillna("") if "player_code" in df.columns else names
-    club = df["current_club_name"].astype("string").str.lower().fillna("") if "current_club_name" in df.columns else names
-    hit = df[names.str.contains(q, regex=False) | code.str.contains(q, regex=False) | club.str.contains(q, regex=False)].copy()
+    needle = qn or q
+    if "_name_fold" in df.columns:
+        names = df["_name_fold"].astype("string").fillna("")
+        code = df["_code_fold"].astype("string").fillna("") if "_code_fold" in df.columns else names
+        club = df["_club_fold"].astype("string").fillna("") if "_club_fold" in df.columns else names
+    else:
+        names = df["name"].astype("string").str.lower().fillna("")
+        code = df["player_code"].astype("string").str.lower().fillna("") if "player_code" in df.columns else names
+        club = df["current_club_name"].astype("string").str.lower().fillna("") if "current_club_name" in df.columns else names
+    hit = df[names.str.contains(needle, regex=False) | code.str.contains(needle, regex=False) | club.str.contains(needle, regex=False)].copy()
     if league:
         hit = hit[hit["league_id"].astype("string") == str(league)]
     if position:
@@ -402,11 +485,13 @@ def search(
         results.append(item)
     have_ids = {str(r.get("player_id")) for r in results if r.get("player_id") is not None}
     have_names = {str(r.get("name") or "").lower() for r in results}
-    try:
-        live = search_players(query)
-    except Exception:
-        live = {"results": []}
-    for item in live.get("results") or []:
+    live_hits: dict[str, Any] = {"results": []}
+    if live:
+        try:
+            live_hits = search_players(query)
+        except Exception:
+            live_hits = {"results": []}
+    for item in live_hits.get("results") or []:
         pid = str(item.get("id") or "")
         name = item.get("name")
         if not name:
@@ -455,8 +540,29 @@ def _active(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _catalog(df: pd.DataFrame | None = None) -> pd.DataFrame:
-    base = _active(df if df is not None else universe())
-    return base[base["league_id"].astype("string").isin(TOP_LEAGUES)]
+    if df is not None:
+        base = _active(df)
+        return base[base["league_id"].astype("string").isin(TOP_LEAGUES)]
+    global _CATALOG
+    if _CATALOG is None:
+        base = _active(universe())
+        _CATALOG = base[base["league_id"].astype("string").isin(TOP_LEAGUES)]
+    return _CATALOG
+
+
+def _catalog_view() -> pd.DataFrame:
+    global _VIEW, _VIEW_KEY
+    key = club_overlay_stamp()
+    if _VIEW is not None and _VIEW_KEY == key:
+        return _VIEW
+    with _BUILD:
+        if _VIEW is not None and _VIEW_KEY == key:
+            return _VIEW
+        if _VIEW is not None and _VIEW_KEY != key:
+            _PACKS.clear()
+        _VIEW = _apply_overlays(_catalog())
+        _VIEW_KEY = key
+        return _VIEW
 
 
 def market(
@@ -472,7 +578,49 @@ def market(
     age_min: int | None = None,
     age_max: int | None = None,
 ) -> dict:
-    df = _apply_overlays(_catalog())
+    default = (
+        not league
+        and not position
+        and not direction
+        and not q
+        and sort == "true_value"
+        and str(order or "desc").lower() == "desc"
+        and int(page or 1) == 1
+        and int(min_minutes or 0) == 0
+        and age_min is None
+        and age_max is None
+    )
+    if default:
+        cached = _pack_get("market")
+        if cached is not None:
+            return cached
+        with _BUILD:
+            cached = _pack_get("market")
+            if cached is not None:
+                return cached
+            pack = _market_build(
+                league, position, direction, q, sort, order, page, page_size, min_minutes, age_min, age_max
+            )
+            return _pack_put("market", pack)
+    return _market_build(
+        league, position, direction, q, sort, order, page, page_size, min_minutes, age_min, age_max
+    )
+
+
+def _market_build(
+    league: str | None,
+    position: str | None,
+    direction: str | None,
+    q: str | None,
+    sort: str,
+    order: str,
+    page: int,
+    page_size: int,
+    min_minutes: int,
+    age_min: int | None,
+    age_max: int | None,
+) -> dict:
+    df = _catalog_view()
     if league:
         df = df[df["league_id"].astype("string") == str(league)]
     if position:
@@ -525,8 +673,15 @@ def market(
 
 
 def pulse() -> dict:
-    df = _apply_overlays(_catalog())
-    club_ok = ~df["current_club_name"].fillna("").astype(str).map(is_free_agent)
+    cached = _pack_get("pulse")
+    if cached is not None:
+        return cached
+    with _BUILD:
+        cached = _pack_get("pulse")
+        if cached is not None:
+            return cached
+        df = _catalog_view()
+        club_ok = ~df["current_club_name"].fillna("").astype(str).map(is_free_agent)
     liquid = df[
         club_ok
         & (df["minutes_365"].fillna(0) >= 900)
@@ -561,7 +716,7 @@ def pulse() -> dict:
         part = df[club_ok & (df["league_id"].astype("string") == code)]
         return [card(r) for _, r in part.sort_values("true_value", ascending=False).head(n).iterrows()]
 
-    return {
+    pack = {
         "undervalued": [card(r) for _, r in cheap.iterrows()],
         "overvalued": [card(r) for _, r in rich.iterrows()],
         "young": [card(r) for _, r in young.iterrows()],
@@ -583,6 +738,7 @@ def pulse() -> dict:
             "leagues": len(listed),
         },
     }
+    return _pack_put("pulse", pack)
 
 
 def _scout_pack(row: pd.Series) -> dict[str, Any]:
@@ -653,7 +809,14 @@ def _scout_pack(row: pd.Series) -> dict[str, Any]:
 
 
 def scout() -> dict:
-    df = _apply_overlays(_catalog())
+    cached = _pack_get("scout")
+    if cached is not None:
+        return cached
+    with _BUILD:
+        cached = _pack_get("scout")
+        if cached is not None:
+            return cached
+        df = _catalog_view()
     liquid = df[
         df["true_value"].notna()
         & df["gap_pct"].notna()
@@ -690,11 +853,18 @@ def scout() -> dict:
             item["band"] = "Süper Lig" if lid == "TR1" else LEAGUE_NAMES.get(lid, lid)
             rows.append(item)
         bands.append({"id": code, "name": title, "items": rows})
-    return json_safe({"ok": True, "positions": bands})
+    return _pack_put("scout", json_safe({"ok": True, "positions": bands}))
 
 
 def leagues() -> list[dict]:
-    df = _catalog()
+    cached = _pack_get("leagues")
+    if cached is not None:
+        return cached
+    with _BUILD:
+        cached = _pack_get("leagues")
+        if cached is not None:
+            return cached
+        df = _catalog()
     grouped = {str(code): part for code, part in df.groupby(df["league_id"].astype("string"))}
     rows = []
     for code in CATALOG_LEAGUES:
@@ -713,7 +883,7 @@ def leagues() -> list[dict]:
                 "players": int(len(part)),
             }
         )
-    return rows
+    return _pack_put("leagues", rows)
 
 
 def _virtual_from_live(player_id: int, bundle: dict) -> pd.DataFrame:
@@ -777,7 +947,12 @@ def _overlay_live(row: pd.Series, bundle: dict) -> pd.Series:
     if profile.get("name"):
         out["name"] = profile["name"]
     club = (profile.get("club") or {}).get("name") if isinstance(profile.get("club"), dict) else None
-    if club:
+    playing = playing_club_from_career(bundle.get("career") if isinstance(bundle.get("career"), dict) else {})
+    if playing and playing.get("club"):
+        out["current_club_name"] = playing.get("club")
+        if playing.get("club_id"):
+            out["current_club_id"] = playing.get("club_id")
+    elif club:
         out["current_club_name"] = club
     if profile.get("imageUrl"):
         out["image_url"] = profile["imageUrl"]
@@ -1033,7 +1208,14 @@ def player_detail(player_id: int, live: bool = True) -> dict:
 
 
 def club_list() -> dict:
-    df = _apply_overlays(_catalog())
+    cached = _pack_get("clubs")
+    if cached is not None:
+        return cached
+    with _BUILD:
+        cached = _pack_get("clubs")
+        if cached is not None:
+            return cached
+        df = _catalog_view()
     if "current_club_name" not in df.columns:
         return {"clubs": []}
     rows = []
@@ -1089,7 +1271,7 @@ def club_list() -> dict:
         by_id[key] = merged
     rows = list(by_id.values()) + leftovers
     rows.sort(key=lambda r: (0 if r["league_id"] == "TR1" else 1, slugify(r.get("league") or ""), slugify(r.get("name") or "")))
-    return json_safe({"clubs": rows})
+    return _pack_put("clubs", json_safe({"clubs": rows}))
 
 
 def _club_row_better(row: dict[str, Any], prev: dict[str, Any]) -> bool:

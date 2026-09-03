@@ -2367,6 +2367,72 @@ class LiveTmPackTests(unittest.TestCase):
         self.assertLess(billed, 3_200_000)
         self.assertEqual(career["current"][0]["total"], 10_000_000 + billed)
 
+    def test_bonus_joins_annual_and_total(self) -> None:
+        from datetime import date
+
+        from app.live_tm import _finish_spell, _write_wage_spell
+
+        spell = {
+            "club": "Galatasaray",
+            "arrived": "2024-07-01",
+            "contract_until": "2027-06-30",
+            "ongoing": True,
+            "kind": "bedel",
+            "fee": 10_000_000,
+        }
+        today = date(2026, 9, 1)
+        _finish_spell(spell, today)
+        _write_wage_spell(
+            spell,
+            [{"year": 2024, "club": "Galatasaray", "annual_eur": 1_000_000}],
+            3_000_000,
+            500_000,
+            "current",
+            today,
+        )
+        remaining = (date(2027, 6, 30) - today).days
+        extra = int(round(500_000 * remaining / 365.25))
+        self.assertEqual(spell["wage_annual"], 1_500_000)
+        self.assertEqual(spell["wage_bonus"], 500_000)
+        self.assertEqual(spell["wage_total"], 3_000_000 + extra)
+        self.assertEqual(spell["total"], 13_000_000 + extra)
+
+    def test_future_loan_return_keeps_destination_current(self) -> None:
+        from datetime import date
+
+        from app.live_tm import _career_from_transfer_list
+
+        raw = [
+            {
+                "dateUnformatted": "2027-06-30",
+                "from": {"clubName": "Galatasaray", "href": "/x/startseite/verein/141"},
+                "to": {"clubName": "RB Leipzig", "href": "/x/startseite/verein/23826"},
+                "fee": "End of loan",
+                "season": "26/27",
+            },
+            {
+                "dateUnformatted": "2026-08-12",
+                "from": {"clubName": "RB Leipzig", "href": "/x/startseite/verein/23826"},
+                "to": {"clubName": "Galatasaray", "href": "/x/startseite/verein/141"},
+                "fee": "loan",
+                "season": "26/27",
+            },
+            {
+                "dateUnformatted": "2024-07-01",
+                "from": {"clubName": "Paris Saint-Germain", "href": "/x/startseite/verein/583"},
+                "to": {"clubName": "RB Leipzig", "href": "/x/startseite/verein/23826"},
+                "fee": "€15.00m",
+                "season": "24/25",
+            },
+        ]
+        career = _career_from_transfer_list(raw, date(2026, 9, 3))
+        current = [str(s.get("club") or "") for s in career["current"]]
+        former = [str(s.get("club") or "") for s in career["former"]]
+        self.assertTrue(any("Galatasaray" in n for n in current))
+        self.assertFalse(any("Leipzig" in n for n in current))
+        self.assertTrue(any("Leipzig" in n for n in former))
+        self.assertFalse(any("Galatasaray" in n for n in former))
+
 
 if __name__ == "__main__":
     unittest.main()
