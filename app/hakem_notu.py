@@ -201,7 +201,7 @@ def _date_label(value: str) -> str:
 def _decorate_source(src: dict[str, Any]) -> dict[str, Any]:
     published = src.get("publishedAt")
     return {
-        "title": src.get("title") or "",
+        "title": src.get("title") or src.get("publisher") or "Kaynak bağlantısı",
         "publisher": src.get("publisher") or "",
         "url": src.get("url") or "",
         "sourceType": src.get("sourceType") or "",
@@ -301,11 +301,19 @@ def catalog() -> dict[str, Any]:
 def home_pack() -> dict[str, Any]:
     pack = catalog()
     matches = pack["matches"]
+    rated = [row for row in matches if row.get("rating")]
     ranked = sorted(
-        [row for row in matches if row.get("rating")],
+        rated,
         key=lambda row: row["rating"]["score"],
         reverse=True,
     )
+    scores = [row["rating"]["score"] for row in rated]
+    decision_counts = {
+        "correct": sum(row["rating"]["correctDecisionCount"] for row in rated),
+        "incorrect": sum(row["rating"]["incorrectDecisionCount"] for row in rated),
+        "debatable": sum(row["rating"]["debatableDecisionCount"] for row in rated),
+        "openReview": sum(row["rating"]["openReviewCount"] for row in rated),
+    }
     incidents = []
     for match in matches:
         for incident in match["incidents"]:
@@ -325,6 +333,14 @@ def home_pack() -> dict[str, Any]:
         ),
         "harvest": harvest_status(),
         "matches": matches,
+        "summary": {
+            "matchCount": len(matches),
+            "ratedMatchCount": len(rated),
+            "averageScore": int(round(sum(scores) / len(scores))) if scores else None,
+            "decisionCount": sum(decision_counts.values()),
+            "decisionCounts": decision_counts,
+            "incidentCount": sum(len(row["incidents"]) for row in matches),
+        },
         "highest": ranked[:3],
         "lowest": list(reversed(ranked[-3:])) if ranked else [],
         "incidents": incidents[:8],
