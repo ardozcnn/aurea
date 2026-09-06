@@ -1566,6 +1566,75 @@ h1 { font-size: clamp(32px, 4vw, 48px); line-height: 1.12; font-weight: 500; let
   border-radius: 999px;
 }
 .hakem-sub a:hover, .hakem-sub a.active { color: var(--gold); border-color: var(--gold); }
+.hakem-sub a.active { background: var(--gold-dim); }
+.hakem-hero-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  max-width: 760px;
+  margin-top: 24px;
+  padding: 14px 16px;
+  border-left: 2px solid var(--gold);
+  background: rgba(212, 181, 106, 0.07);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.hakem-hero-mark {
+  color: var(--gold);
+  font-family: var(--display);
+  font-size: 20px;
+  line-height: 1;
+}
+.hakem-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin: 0 0 26px;
+}
+.hakem-summary-card {
+  min-height: 104px;
+  padding: 16px 18px;
+  background: linear-gradient(145deg, rgba(255,255,255,0.045), rgba(255,255,255,0.015));
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.hakem-summary-card span { display: block; color: var(--muted); font-size: 12px; }
+.hakem-summary-card b { display: block; margin-top: 7px; font-family: var(--display); font-size: 32px; font-weight: 500; }
+.hakem-summary-card.score b { color: var(--green); }
+.hakem-summary-card.alert b { color: var(--gold); }
+.hakem-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 24px;
+  padding: 14px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255,255,255,0.025);
+}
+.hakem-toolbar p { margin: 0; }
+.hakem-toolbar .btn { flex: 0 0 auto; }
+.hakem-filter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: -10px 0 14px;
+}
+.hakem-filter label { color: var(--muted); font-size: 13px; }
+.hakem-filter input {
+  width: min(320px, 100%);
+  border: 1px solid var(--line);
+  background: var(--fill);
+  border-radius: 999px;
+  padding: 9px 14px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+}
+.hakem-filter input:focus { outline: 0; border-color: var(--gold); }
 .hakem-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -1582,6 +1651,14 @@ h1 { font-size: clamp(32px, 4vw, 48px); line-height: 1.12; font-weight: 500; let
   padding: 16px 18px;
 }
 .hakem-card:hover, .hakem-rank:hover { border-color: var(--gold); background: var(--gold-dim); }
+.hakem-card { transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease; }
+.hakem-card:hover { transform: translateY(-2px); }
+.hakem-card-top { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.hakem-card-top .kicker { margin: 0; }
+.hakem-card-top .hakem-score b { font-size: 24px; }
+.hakem-card-ref { margin: 16px 0 8px; color: var(--muted); font-size: 13px; }
+.hakem-card-ref b { display: block; color: var(--ink); font-size: 15px; font-weight: 500; }
+.hakem-card-meta { display: flex; justify-content: space-between; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
 .hakem-card h3, .hakem-inc h3 {
   font-family: var(--display);
   font-size: 22px;
@@ -1596,6 +1673,7 @@ h1 { font-size: clamp(32px, 4vw, 48px); line-height: 1.12; font-weight: 500; let
 .hakem-score.high { color: var(--green); }
 .hakem-score.mid { color: var(--gold); }
 .hakem-score.low { color: var(--red); }
+.hakem-score.empty { color: var(--muted); }
 .hakem-ranks { margin: 8px 0 28px; }
 .hakem-rank {
   display: flex;
@@ -1652,6 +1730,11 @@ h1 { font-size: clamp(32px, 4vw, 48px); line-height: 1.12; font-weight: 500; let
 .hakem-table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .hakem-table th, .hakem-table td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); }
 .hakem-harvest { margin: 0 0 10px; }
+.hakem-empty { margin: 10px 0; padding: 22px; color: var(--muted); }
+.hakem-empty h3 { margin: 0; color: var(--ink); font-family: var(--display); font-size: 22px; font-weight: 500; }
+.hakem-empty p { margin: 4px 0 0; }
+.hakem-empty-icon { display: block; margin-bottom: 4px; color: var(--gold); font-size: 24px; }
+.hakem-inc-list > .hakem-empty { margin-top: 0; }
 .hakem-form { display: grid; gap: 10px; }
 .hakem-form input, .hakem-form select, .hakem-form textarea {
   border: 1px solid var(--line);
@@ -1666,6 +1749,12 @@ h1 { font-size: clamp(32px, 4vw, 48px); line-height: 1.12; font-weight: 500; let
 .group article p { line-height: 1.85; }
 
 @media (max-width: 720px) {
+  .hakem-summary { grid-template-columns: repeat(2, 1fr); }
+  .hakem-toolbar { align-items: flex-start; flex-direction: column; }
+  .hakem-toolbar .btn { width: 100%; }
+  .hakem-filter { align-items: flex-start; flex-direction: column; }
+  .hakem-filter input { width: 100%; }
+  .hakem-card-meta { font-size: 10px; }
   .dock {
     display: grid;
     grid-template-columns: repeat(5, 1fr);
@@ -1896,4 +1985,3 @@ h1 { font-size: clamp(32px, 4vw, 48px); line-height: 1.12; font-weight: 500; let
     color: #1c1810;
   }
 }
-

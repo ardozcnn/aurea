@@ -2162,10 +2162,12 @@ async function renderClub(token, gen) {
 }
 
 function hakemNav() {
+  const parts = routeParts();
+  const current = parts[1] || "masa";
   return `<nav class="hakem-sub">
-    <a href="/hakem-notu">Masa</a>
-    <a href="/hakem-notu/hakemler">Hakemler</a>
-    <a href="/hakem-notu/yontem">Yöntem</a>
+    <a class="${current === "masa" ? "active" : ""}" href="/hakem-notu">Masa</a>
+    <a class="${current === "hakemler" ? "active" : ""}" href="/hakem-notu/hakemler">Hakemler</a>
+    <a class="${current === "yontem" ? "active" : ""}" href="/hakem-notu/yontem">Yöntem</a>
   </nav>`;
 }
 
@@ -2176,20 +2178,41 @@ function hakemScoreClass(score) {
 }
 
 function hakemScoreMark(score, size) {
+  if (score == null || Number.isNaN(Number(score))) {
+    return `<div class="hakem-score empty ${size || ""}"><b>—</b><span>/100</span></div>`;
+  }
   return `<div class="hakem-score ${hakemScoreClass(score)} ${size || ""}"><b>${esc(score)}</b><span>/100</span></div>`;
 }
 
 function hakemMatchCard(match) {
   const rating = match.rating || {};
   const ref = (rating.referee || {}).name || "—";
+  const incidents = match.incidents || [];
+  const disputed = incidents.filter((item) => item.editorialVerdict !== "CORRECT").length;
   return `<a class="hakem-card" href="${esc(match.href)}">
-    <p class="kicker">${esc(match.season)} · ${esc(match.week)}. hafta</p>
+    <div class="hakem-card-top"><p class="kicker">${esc(match.season)} · ${esc(match.week)}. hafta</p>${rating.score != null ? hakemScoreMark(rating.score, "sm") : ""}</div>
     <h3>${esc(match.title)}</h3>
     <p class="sub">${esc(match.scoreline)} · ${esc(match.playedLabel)}</p>
-    <p>Orta hakem: <b>${esc(ref)}</b></p>
-    ${rating.score != null ? hakemScoreMark(rating.score, "sm") : ""}
+    <p class="hakem-card-ref">Orta hakem <b>${esc(ref)}</b></p>
+    <div class="hakem-card-meta"><span>${esc(incidents.length)} karar kaydı</span><span>${disputed ? `${esc(disputed)} tartışmalı` : "Tartışmalı karar yok"}</span></div>
     ${match.isDemo ? `<span class="stamp belirsiz">Örnek / test verisi</span>` : ""}
   </a>`;
+}
+
+function hakemSummary(summary) {
+  const data = summary || {};
+  const counts = data.decisionCounts || {};
+  const card = (label, value, tone) => `<div class="hakem-summary-card ${tone || ""}"><span>${label}</span><b>${value == null ? "—" : esc(value)}</b></div>`;
+  return `<div class="hakem-summary">
+    ${card("Ortalama not", data.averageScore, "score")}
+    ${card("Notlanan maç", `${data.ratedMatchCount || 0}/${data.matchCount || 0}`)}
+    ${card("Karar kaydı", data.decisionCount || 0)}
+    ${card("Tartışmalı / hatalı", (counts.debatable || 0) + (counts.incorrect || 0), "alert")}
+  </div>`;
+}
+
+function hakemEmpty(message) {
+  return `<div class="panel hakem-empty"><span class="hakem-empty-icon">◌</span><h3>Henüz kayıt yok</h3><p class="sub">${esc(message)}</p></div>`;
 }
 
 function hakemChart(points) {
@@ -2215,7 +2238,7 @@ function hakemChart(points) {
 
 function hakemSources(sources) {
   const rows = sources || [];
-  if (!rows.length) return "";
+  if (!rows.length) return `<div class="hakem-empty"><p class="sub">Bu bölüm için doğrulanmış kaynak henüz eklenmedi.</p></div>`;
   return `<div class="hakem-source-list">${rows.map((src) => {
     const href = src.url || "";
     const external = href.startsWith("http");
@@ -2271,28 +2294,43 @@ async function renderHakemDesk(parts, gen) {
   view.innerHTML = `
     ${hakemNav()}
     <section class="panel page-head">
-      <p class="kicker">2026/27 Süper Lig · bitmiş maçlar otomatik, not eski hakem kaynaklı</p>
-      <h1>Maç başına orta hakem notu</h1>
-      <p class="lede">Her maç 100 ile başlar. Yayımlanmış uzman yorumuna dayanan yanlış veya tartışmalı kararlar etki ve güven düzeyine göre puan düşürür. VAR, yardımcı hakem ve dördüncü hakem kadroda görünür; not yalnızca orta hakeme aittir.</p>
-      <p class="sub">${esc(data.disclaimer || "")}</p>
+      <p class="kicker">Süper Lig · editöryal hakem masası</p>
+      <h1>Maçın kararlarını, bağlamıyla okuyun.</h1>
+      <p class="lede">Orta hakemin kararlarını maç bazında, kaynak ve güven seviyesiyle izleyin. Puan yalnızca yayımlanmış uzman değerlendirmesi yeterli olduğunda değişir.</p>
+      <div class="hakem-hero-note"><span class="hakem-hero-mark">01</span><span>${esc(data.disclaimer || "")}</span></div>
     </section>
-    <div class="row-head"><h2>Son maçlar</h2><a href="/hakem-notu/yontem">Nasıl hesaplanır?</a></div>
-    <p class="sub hakem-harvest">${esc((data.harvest || {}).message || "")}${(data.harvest || {}).finishedAt ? " · son tarama " + esc((data.harvest || {}).finishedAt).slice(0, 16).replace("T", " ") : ""}</p>
-    <p class="sub"><button type="button" class="btn" id="hakem-scan">Maçları şimdi tara</button></p>
-    <div class="hakem-grid">${(data.matches || []).map(hakemMatchCard).join("")}</div>
+    ${hakemSummary(data.summary)}
+    <div class="hakem-toolbar"><div><p class="kicker">Veri akışı</p><p class="sub hakem-harvest">${esc((data.harvest || {}).message || "")}${(data.harvest || {}).finishedAt ? " · son tarama " + esc((data.harvest || {}).finishedAt).slice(0, 16).replace("T", " ") : ""}</p></div><button type="button" class="btn" id="hakem-scan">Maçları şimdi tara</button></div>
+    <div class="row-head"><h2>Son maçlar</h2><a href="/hakem-notu/yontem">Puanlama rehberi <span aria-hidden="true">↗</span></a></div>
+    <div class="hakem-filter"><label for="hakem-match-filter">Maçlarda ara</label><input id="hakem-match-filter" type="search" placeholder="Takım veya hakem adı" /></div>
+    <div class="hakem-grid" id="hakem-match-grid">${(data.matches || []).map(hakemMatchCard).join("")}</div>
+    <div class="hakem-empty hidden" id="hakem-match-empty"><h3>Eşleşen maç bulunamadı</h3><p class="sub">Takım veya hakem adını değiştirerek tekrar deneyin.</p></div>
     <div class="duo hakem-ranks">
       <article class="panel">
         <h2>En yüksek maç notları</h2>
-        ${(data.highest || []).map((row) => `<a class="hakem-rank" href="${esc(row.href)}"><span><b>${esc(row.title)}</b><em>${esc((row.rating.referee || {}).name || "")} · ${esc(row.playedLabel)}</em></span>${hakemScoreMark(row.rating.score, "sm")}</a>`).join("")}
+        ${(data.highest || []).length ? (data.highest || []).map((row) => `<a class="hakem-rank" href="${esc(row.href)}"><span><b>${esc(row.title)}</b><em>${esc((row.rating.referee || {}).name || "")} · ${esc(row.playedLabel)}</em></span>${hakemScoreMark(row.rating.score, "sm")}</a>`).join("") : hakemEmpty("Notlanan maçlar oluştuğunda burada görünecek.")}
       </article>
       <article class="panel">
         <h2>En düşük maç notları</h2>
-        ${(data.lowest || []).map((row) => `<a class="hakem-rank" href="${esc(row.href)}"><span><b>${esc(row.title)}</b><em>${esc((row.rating.referee || {}).name || "")} · ${esc(row.playedLabel)}</em></span>${hakemScoreMark(row.rating.score, "sm")}</a>`).join("")}
+        ${(data.lowest || []).length ? (data.lowest || []).map((row) => `<a class="hakem-rank" href="${esc(row.href)}"><span><b>${esc(row.title)}</b><em>${esc((row.rating.referee || {}).name || "")} · ${esc(row.playedLabel)}</em></span>${hakemScoreMark(row.rating.score, "sm")}</a>`).join("") : hakemEmpty("Notlanan maçlar oluştuğunda burada görünecek.")}
       </article>
     </div>
     <div class="row-head"><h2>Son tartışmalı pozisyonlar</h2></div>
-    <div class="hakem-inc-list">${(data.incidents || []).map((item) => `<a class="hakem-rank" href="${esc(item.href)}"><span><p class="kicker">${esc(item.minuteLabel)} · ${esc(item.eventLabel)}</p><b>${esc(item.matchTitle)}</b><em>${esc(item.onFieldDecision)}</em></span><span class="stamp ${(item.editorialVerdict || "").toLowerCase()}">${esc(item.verdictLabel)}</span></a>`).join("")}</div>
+    <div class="hakem-inc-list">${(data.incidents || []).length ? (data.incidents || []).map((item) => `<a class="hakem-rank" href="${esc(item.href)}"><span><p class="kicker">${esc(item.minuteLabel)} · ${esc(item.eventLabel)}</p><b>${esc(item.matchTitle)}</b><em>${esc(item.onFieldDecision)}</em></span><span class="stamp ${(item.editorialVerdict || "").toLowerCase()}">${esc(item.verdictLabel)}</span></a>`).join("") : hakemEmpty("Tartışmalı pozisyon kaydı bulunmuyor.")}</div>
   `;
+  const filter = document.getElementById("hakem-match-filter");
+  const grid = document.getElementById("hakem-match-grid");
+  const empty = document.getElementById("hakem-match-empty");
+  filter?.addEventListener("input", () => {
+    const query = filter.value.trim().toLocaleLowerCase("tr-TR");
+    let visible = 0;
+    [...(grid?.children || [])].forEach((card) => {
+      const show = !query || card.textContent.toLocaleLowerCase("tr-TR").includes(query);
+      card.classList.toggle("hidden", !show);
+      if (show) visible += 1;
+    });
+    empty?.classList.toggle("hidden", visible > 0);
+  });
   const scan = document.getElementById("hakem-scan");
   if (scan) {
     scan.onclick = async () => {
