@@ -41,6 +41,14 @@ def method_pack() -> dict[str, Any]:
                 ],
             },
             {
+                "id": "hakem-notu",
+                "title": "Hakem Notu",
+                "paragraphs": [
+                    "Oyuncu değerinden ayrı, Süper Lig orta hakem masası Hakem Notu sayfasındadır. Not yalnızca orta hakeme aittir; VAR ve yardımcı hakemler kadroda görünür.",
+                    "Bu not resmî bir MHK veya TFF değerlendirmesi değildir. Bitmiş maçlar otomatik alınır. Her maç 100 ile başlar; yayımlanmış eski hakem köşesi (Aydınus, Çakar, Çulcu, Bitnel, Akçer, Toroğlu) ve beIN Trio metinleriyle belgelenen yanlış kararlar etki ve güven düzeyine göre puan düşürür.",
+                ],
+            },
+            {
                 "id": "fantezi",
                 "title": "TFF Fantezi Lig",
                 "paragraphs": [

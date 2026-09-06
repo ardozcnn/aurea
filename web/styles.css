@@ -1531,12 +1531,144 @@ h1 { font-size: clamp(32px, 4vw, 48px); line-height: 1.12; font-weight: 500; let
 .club-gaps .dusuk { color: var(--green); font-style: normal; font-size: 12px; }
 .club-gaps .yuksek { color: var(--red); font-style: normal; font-size: 12px; }
 
+.home-desk {
+  display: grid;
+  gap: 6px;
+  margin-top: 22px;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--gold-dim);
+  text-decoration: none;
+  color: inherit;
+  max-width: 520px;
+}
+.home-desk:hover { border-color: var(--gold); }
+.home-desk strong {
+  font-family: var(--display);
+  font-size: 26px;
+  font-weight: 500;
+}
+.home-desk span:last-child { color: var(--muted); font-size: 14px; }
+
+.hakem-sub {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 18px;
+}
+.hakem-sub a {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 13px;
+  border: 1px solid var(--line);
+  padding: 7px 12px;
+  border-radius: 999px;
+}
+.hakem-sub a:hover, .hakem-sub a.active { color: var(--gold); border-color: var(--gold); }
+.hakem-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+  margin-bottom: 28px;
+}
+.hakem-card, .hakem-rank {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+}
+.hakem-card:hover, .hakem-rank:hover { border-color: var(--gold); background: var(--gold-dim); }
+.hakem-card h3, .hakem-inc h3 {
+  font-family: var(--display);
+  font-size: 22px;
+  font-weight: 500;
+  margin: 4px 0 8px;
+}
+.hakem-score { display: flex; align-items: baseline; gap: 4px; font-family: var(--display); }
+.hakem-score b { font-weight: 500; font-size: 28px; line-height: 1; }
+.hakem-score span { color: var(--muted); font-size: 13px; font-family: var(--font); }
+.hakem-score.sm b { font-size: 22px; }
+.hakem-score.lg b { font-size: clamp(48px, 8vw, 72px); }
+.hakem-score.high { color: var(--green); }
+.hakem-score.mid { color: var(--gold); }
+.hakem-score.low { color: var(--red); }
+.hakem-ranks { margin: 8px 0 28px; }
+.hakem-rank {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+}
+.hakem-rank em, .hakem-rank .kicker { color: var(--muted); font-style: normal; font-size: 13px; display: block; }
+.hakem-hero .hakem-score { margin: 8px 0 12px; }
+.hakem-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin: 0 0 22px;
+}
+.hakem-stats div, .hakem-official {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+.hakem-stats span, .hakem-official .kicker { color: var(--muted); font-size: 12px; }
+.hakem-stats b { font-family: var(--display); font-size: 28px; font-weight: 500; display: block; }
+.hakem-stats em { color: var(--muted); font-style: normal; font-size: 12px; }
+.hakem-stats .wide { grid-column: 1 / -1; }
+.hakem-crew {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin: 10px 0 28px;
+}
+.hakem-official { display: flex; flex-direction: column; gap: 8px; }
+.hakem-timeline { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.hakem-inc-head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.hakem-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.stamp.incorrect { color: var(--red); background: var(--red-soft); border-color: rgba(217,137,122,0.4); }
+.stamp.debatable { color: var(--gold); background: var(--gold-dim); border-color: rgba(212,181,106,0.4); }
+.stamp.correct { color: var(--green); background: var(--green-soft); border-color: rgba(143,191,154,0.4); }
+.stamp.open_review { color: var(--muted); background: var(--fill); }
+.hakem-source-list { display: grid; gap: 10px; margin: 12px 0 22px; }
+.hakem-source {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: var(--fill);
+}
+.hakem-source a { color: var(--gold); text-decoration: none; font-weight: 500; }
+.hakem-source a:hover { text-decoration: underline; }
+.hakem-source p { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
+.hakem-source .kicker { margin: 0 0 4px; }
+.hakem-chart { width: 100%; height: 180px; }
+.hakem-split { display: flex; justify-content: space-between; margin: 8px 0; }
+.hakem-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.hakem-table th, .hakem-table td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+.hakem-harvest { margin: 0 0 10px; }
+.hakem-form { display: grid; gap: 10px; }
+.hakem-form input, .hakem-form select, .hakem-form textarea {
+  border: 1px solid var(--line);
+  background: var(--fill);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font: inherit;
+  color: var(--ink);
+}
+.hakem-form textarea { min-height: 110px; }
+
 .group article p { line-height: 1.85; }
 
 @media (max-width: 720px) {
   .dock {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     position: fixed;
     left: 0;
     right: 0;

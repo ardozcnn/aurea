@@ -14,6 +14,10 @@ data/warehouse.duckdb.wal
 data/cache.sqlite
 data/cache/
 data/fantasy_last.json
+data/hakem_notu_corrections.json
+data/hakem_notu_harvest.json
+data/hakem_harvest_status.json
+data/hakem_harvest_cache.json
 data/bootstrap_state.json
 data/tff_login.txt
 data/tff_cookies.txt

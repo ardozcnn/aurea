@@ -18,6 +18,15 @@ from app.fantasy_bridge import login_account as fantasy_login
 from app.fantasy_bridge import logout_account as fantasy_logout
 from app.fantasy_bridge import start as fantasy_start
 from app.fantasy_bridge import status as fantasy_status
+from app.hakem_harvest import harvest_status as hakem_harvest_status
+from app.hakem_harvest import start_harvest_async as hakem_start_harvest
+from app.hakem_harvest import start_scheduler as hakem_start_scheduler
+from app.hakem_notu import home_pack as hakem_home
+from app.hakem_notu import match_pack as hakem_match
+from app.hakem_notu import method_pack as hakem_method
+from app.hakem_notu import referee_list as hakem_referees
+from app.hakem_notu import referee_pack as hakem_referee
+from app.hakem_notu import save_correction as hakem_save_correction
 from app.method import method_pack
 from app.model import load_engine, train_engine
 from app.store import (
@@ -76,6 +85,7 @@ def _startup() -> None:
     st.load_persisted()
     fantasy_load_cached()
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    hakem_start_scheduler()
     if try_load_existing():
         st.set_state(phase="ready", message="Kayıtlı motor yüklendi.", progress=1.0, error=None)
         return
@@ -287,6 +297,59 @@ def api_model():
 class FantasyLoginIn(BaseModel):
     email: str = Field(min_length=3)
     password: str = Field(min_length=1)
+
+
+class HakemCorrectionIn(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+    email: str = Field(min_length=5, max_length=120)
+    message: str = Field(min_length=10, max_length=4000)
+    matchId: str | None = None
+
+
+@app.get("/api/hakem-notu")
+def api_hakem_home():
+    return hakem_home()
+
+
+@app.get("/api/hakem-notu/yontem")
+def api_hakem_method():
+    return hakem_method()
+
+
+@app.get("/api/hakem-notu/hakemler")
+def api_hakem_referees():
+    return {"referees": hakem_referees()}
+
+
+@app.get("/api/hakem-notu/hakemler/{slug}")
+def api_hakem_referee(slug: str):
+    pack = hakem_referee(slug)
+    if not pack:
+        raise HTTPException(404, "Hakem bulunamadı.")
+    return pack
+
+
+@app.get("/api/hakem-notu/maclar/{slug}")
+def api_hakem_match(slug: str):
+    pack = hakem_match(slug)
+    if not pack:
+        raise HTTPException(404, "Maç bulunamadı.")
+    return pack
+
+
+@app.get("/api/hakem-notu/hasat")
+def api_hakem_harvest_status():
+    return hakem_harvest_status()
+
+
+@app.post("/api/hakem-notu/hasat")
+def api_hakem_harvest_start():
+    return hakem_start_harvest()
+
+
+@app.post("/api/hakem-notu/duzeltme")
+def api_hakem_correction(body: HakemCorrectionIn):
+    return hakem_save_correction(body.name, body.email, body.message, body.matchId)
 
 
 @app.get("/api/fantasy/status")

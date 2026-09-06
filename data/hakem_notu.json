@@ -1,0 +1,2037 @@
+{
+  "season": "2026/27",
+  "harvestedAt": "2026-09-06",
+  "note": "Fikstür TFF/maç raporlarından. Karar notu yayımlanmış eski hakem köşelerinden (Aydınus, Çakar, Çulcu, Bitnel, Akçer, Toroğlu) ve beIN Trio metinlerinden. Resmî MHK notu değildir.",
+  "referees": [
+    {
+      "firstName": "Oğuzhan",
+      "lastName": "Aksu",
+      "slug": "oguzhan-aksu",
+      "bio": "Süper Lig orta hakemi.",
+      "isDemo": false
+    },
+    {
+      "firstName": "Mehmet",
+      "lastName": "Türkmen",
+      "slug": "mehmet-turkmen",
+      "bio": "Süper Lig orta hakemi.",
+      "isDemo": false
+    },
+    {
+      "firstName": "Yasin",
+      "lastName": "Kol",
+      "slug": "yasin-kol",
+      "bio": "Süper Lig orta hakemi.",
+      "isDemo": false
+    },
+    {
+      "firstName": "Kadir",
+      "lastName": "Sağlam",
+      "slug": "kadir-saglam",
+      "bio": "Süper Lig orta hakemi.",
+      "isDemo": false
+    },
+    {
+      "firstName": "Halil Umut",
+      "lastName": "Meler",
+      "slug": "halil-umut-meler",
+      "bio": "Süper Lig orta hakemi.",
+      "isDemo": false
+    },
+    {
+      "firstName": "Ceyhun",
+      "lastName": "Sesigüzel",
+      "slug": "ceyhun-sesiguzel",
+      "bio": "Yardımcı hakem.",
+      "isDemo": false
+    },
+    {
+      "firstName": "Abdullah Bora",
+      "lastName": "Özkara",
+      "slug": "abdullah-bora-ozkara",
+      "bio": "Yardımcı hakem.",
+      "isDemo": false
+    },
+    {
+      "firstName": "Ayberk",
+      "lastName": "Demirbaş",
+      "slug": "ayberk-demirbas",
+      "bio": "Dördüncü hakem.",
+      "isDemo": false
+    },
+    {
+      "firstName": "Pawel",
+      "lastName": "Malec",
+      "slug": "pawel-malec",
+      "bio": "VAR. Maç notuna dahil edilmez.",
+      "isDemo": false
+    },
+    {
+      "firstName": "Özer",
+      "lastName": "Özden",
+      "slug": "ozer-ozden",
+      "bio": "AVAR. Maç notuna dahil edilmez.",
+      "isDemo": false
+    },
+    {
+      "firstName": "Mehmet",
+      "lastName": "Kısal",
+      "slug": "mehmet-kisal",
+      "bio": "Yardımcı hakem.",
+      "isDemo": false
+    },
+    {
+      "firstName": "Esat",
+      "lastName": "Sancaktar",
+      "slug": "esat-sancaktar",
+      "bio": "Yardımcı hakem.",
+      "isDemo": false
+    },
+    {
+      "firstName": "İbrahim Çağlar",
+      "lastName": "Uyarcan",
+      "slug": "ibrahim-caglar-uyarcan",
+      "bio": "Yardımcı hakem.",
+      "isDemo": false
+    },
+    {
+      "firstName": "Batuhan",
+      "lastName": "Kolak",
+      "slug": "batuhan-kolak",
+      "bio": "Dördüncü hakem.",
+      "isDemo": false
+    },
+    {
+      "firstName": "Richard",
+      "lastName": "Martens",
+      "slug": "richard-martens",
+      "bio": "VAR. Maç notuna dahil edilmez.",
+      "isDemo": false
+    },
+    {
+      "firstName": "Osman Gökhan",
+      "lastName": "Bilir",
+      "slug": "osman-gokhan-bilir",
+      "bio": "Yardımcı hakem.",
+      "isDemo": false
+    },
+    {
+      "firstName": "Direnç",
+      "lastName": "Tonusluoğlu",
+      "slug": "direnc-tonusluoglu",
+      "bio": "Dördüncü hakem.",
+      "isDemo": false
+    },
+    {
+      "firstName": "Andrew",
+      "lastName": "Dallas",
+      "slug": "andrew-dallas",
+      "bio": "VAR. Maç notuna dahil edilmez.",
+      "isDemo": false
+    },
+    {
+      "firstName": "Bersan",
+      "lastName": "Duran",
+      "slug": "bersan-duran",
+      "bio": "AVAR. Maç notuna dahil edilmez.",
+      "isDemo": false
+    },
+    {
+      "firstName": "Anıl",
+      "lastName": "Usta",
+      "slug": "anil-usta",
+      "bio": "Yardımcı hakem.",
+      "isDemo": false
+    },
+    {
+      "firstName": "Bahtiyar",
+      "lastName": "Birinci",
+      "slug": "bahtiyar-birinci",
+      "bio": "Yardımcı hakem.",
+      "isDemo": false
+    },
+    {
+      "firstName": "Yücel",
+      "lastName": "Büyük",
+      "slug": "yucel-buyuk",
+      "bio": "Dördüncü hakem.",
+      "isDemo": false
+    },
+    {
+      "firstName": "Murat",
+      "lastName": "Altın",
+      "slug": "murat-altin",
+      "bio": "AVAR. Maç notuna dahil edilmez.",
+      "isDemo": false
+    }
+  ],
+  "matches": [
+    {
+      "slug": "genclerbirligi-fenerbahce-2026-1",
+      "season": "2026/27",
+      "week": 1,
+      "playedAt": "2026-08-15T21:30:00+03:00",
+      "stadium": "Eryaman Stadyumu",
+      "home": {
+        "id": "genclerbirligi",
+        "name": "Gençlerbirliği",
+        "shortName": "GEN"
+      },
+      "away": {
+        "id": "fb",
+        "name": "Fenerbahçe",
+        "shortName": "FB"
+      },
+      "homeScore": 2,
+      "awayScore": 1,
+      "isDemo": false,
+      "officials": [
+        {
+          "role": "CENTER",
+          "refereeSlug": "oguzhan-aksu"
+        },
+        {
+          "role": "ASSISTANT",
+          "refereeSlug": "esat-sancaktar"
+        },
+        {
+          "role": "ASSISTANT",
+          "refereeSlug": "osman-gokhan-bilir"
+        },
+        {
+          "role": "FOURTH",
+          "refereeSlug": "direnc-tonusluoglu"
+        },
+        {
+          "role": "VAR",
+          "refereeSlug": "andrew-dallas"
+        },
+        {
+          "role": "AVAR",
+          "refereeSlug": "bersan-duran"
+        }
+      ],
+      "sources": [
+        {
+          "title": "Gençlerbirliği 2-1 Fenerbahçe",
+          "publisher": "Son Dakika",
+          "url": "https://www.sondakika.com/spor/haber-genclerbirligi-fenerbahce-yi-2-1-maglup-etti-20148848/",
+          "sourceType": "NEWS",
+          "publishedAt": "2026-08-15",
+          "excerpt": "Açılış haftası, Eryaman, 2-1. Goller: Talisca 13′, Tongya 37′, Oğulcan Ülgün 56′. Orta hakem Oğuzhan Aksu.",
+          "approved": true
+        },
+        {
+          "title": "Law 12 — Fouls and Misconduct",
+          "publisher": "IFAB",
+          "url": "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+          "sourceType": "OFFICIAL",
+          "publishedAt": "2026-07-01",
+          "excerpt": "Ceza sahası içi kontrolsüz müdahale penaltı ve disiplin cezasına konu olur.",
+          "approved": true
+        },
+        {
+          "title": "Sarı kart: Kerem Aktürkoğlu",
+          "publisher": "Haberler.com",
+          "url": "https://www.haberler.com/spor/genclerbirligi-fenerbahce-2-1-20148834-haberi/",
+          "sourceType": "NEWS",
+          "publishedAt": "2026-08-15",
+          "excerpt": "Maç raporu sarı kartı yalnızca Kerem Aktürkoğlu (Fenerbahçe) olarak verir. Goller: 13 Talisca, 37 Tongya, 56 Oğulcan Ülgün.",
+          "approved": true
+        },
+        {
+          "title": "Fenerbahce’nin iki penaltısı verilmedi",
+          "publisher": "Fırat Aydınus / Hürriyet",
+          "url": "https://www.hurriyet.com.tr/sporarena/yazarlar/firat-aydinus/fenerbahcenin-iki-penaltisi-verilmedi-43274773",
+          "sourceType": "EXPERT_COMMENTARY",
+          "publishedAt": "2026-08-16",
+          "excerpt": "Eski FIFA hakemi: 37′ Guendouzi devam doğru; 49′ Koita-Müldür penaltı; 71′ Goutas eli doğal konumda değil, penaltı. VAR Dallas eleştirisi.",
+          "approved": true
+        },
+        {
+          "approved": true,
+          "title": "Kaçırılmış bir penaltı var",
+          "publisher": "Milliyet / beIN Trio",
+          "url": "https://www.milliyet.com.tr/skorer/genclerbirligi-fenerbahce-macinin-tartismali-pozisyonlarini-eski-hakemler-degerlendirdi-futbolda-boyle-bir-7642189",
+          "sourceType": "EXPERT_COMMENTARY",
+          "publishedAt": "2026-08-16",
+          "excerpt": "Trio: 49′ Müldür net penaltı. 71′ el pozisyonunda ekip bölündü."
+        },
+        {
+          "approved": true,
+          "title": "İlk uçağa bindirip gönderin",
+          "publisher": "Deniz Ateş Bitnel / Yeni Şafak",
+          "url": "https://www.yenisafak.com/galeri/spor/eski-hakemden-genclerbirligi-fenerbahce-macindaki-penalti-pozisyonu-icin-olay-sozler-ilk-ucaga-bindirip-gonderin-4848953",
+          "sourceType": "EXPERT_COMMENTARY",
+          "publishedAt": "2026-08-18",
+          "excerpt": "Bitnel, Anthony Taylor’a atfedilen ‘Talisca penaltı / Müldür devam’ sızıntısını MHK stratejisi saydı ve teyit etmedi. Nota girmedi."
+        }
+      ],
+      "incidents": [
+        {
+          "minute": 37,
+          "eventType": "FOUL",
+          "onFieldDecision": "Devam (gol öncesi Guendouzi)",
+          "editorialVerdict": "CORRECT",
+          "impactLevel": "HIGH",
+          "confidence": "HIGH_CONFIDENCE",
+          "description": "Gençlerbirliği golü öncesi Guendouzi’ye faul iddiası. beIN Trio ekibi devam kararında birleşti.",
+          "ifabRule": "IFAB 12",
+          "ifabUrl": "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+          "sourceConfidence": 82,
+          "sources": [
+            {
+              "title": "Trio: Guendouzi pozisyonunda devam doğru",
+              "publisher": "Haberler.com / beIN Trio",
+              "url": "https://www.haberler.com/spor/triodan-fenerbahcenin-penalti-bekledigi-20149475-haberi/",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-08-16",
+              "excerpt": "Seçim Demirel, Bülent Yıldırım ve Deniz Çoban gol öncesi teması faul için yetersiz buldu; devam kararı doğru.",
+              "approved": true
+            },
+            {
+              "title": "37′ devam doğru",
+              "publisher": "Fırat Aydınus / Hürriyet",
+              "url": "https://www.hurriyet.com.tr/sporarena/yazarlar/firat-aydinus/fenerbahcenin-iki-penaltisi-verilmedi-43274773",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-08-16",
+              "excerpt": "Guendouzi-Ensar mücadelesinde devam kararı doğru; faul yok.",
+              "approved": true
+            }
+          ]
+        },
+        {
+          "minute": 49,
+          "eventType": "PENALTY",
+          "onFieldDecision": "Devam",
+          "editorialVerdict": "INCORRECT",
+          "impactLevel": "CRITICAL",
+          "confidence": "HIGH_CONFIDENCE_WRONG",
+          "description": "49′ Koita’nın Müldür’e savurduğu ayak. Trio üçlü net penaltı; Fırat Aydınus aynı görüşte (kontrolsüz müdahale).",
+          "ifabRule": "IFAB 12 — Ceza sahası faulü",
+          "ifabUrl": "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+          "sourceConfidence": 91,
+          "sources": [
+            {
+              "title": "Kaçırılmış bir penaltı var",
+              "publisher": "Milliyet / beIN Trio",
+              "url": "https://www.milliyet.com.tr/skorer/genclerbirligi-fenerbahce-macinin-tartismali-pozisyonlarini-eski-hakemler-degerlendirdi-futbolda-boyle-bir-7642189",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-08-16",
+              "excerpt": "Bülent Yıldırım: ‘Savurduğu bir ayak var, tekvando gibi. Tartışmasız, net penaltı. Kaçırılmış bir penaltı.’ Deniz Çoban: ‘Futbolda böyle bir hamle yok. Tartışmasız penaltı.’",
+              "approved": true
+            },
+            {
+              "title": "Trio’dan son nokta: penaltı",
+              "publisher": "Fanatik / beIN Trio",
+              "url": "https://www.fanatik.com.tr/fenerbahce/galeri-genclerbirligi-fenerbahce-macindaki-cok-tartisilan-iki-pozisyona-triodan-son-nokta-boyle-bir-hamle-yok-2634493",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-08-16",
+              "excerpt": "Hakem Oğuzhan Aksu’nun 49. dakika kararı eski hakemlerce kaçırılmış penaltı olarak işlendi.",
+              "approved": true
+            },
+            {
+              "title": "Müldür pozisyonu penaltı olmalıydı",
+              "publisher": "Fırat Aydınus / Hürriyet",
+              "url": "https://www.hurriyet.com.tr/sporarena/yazarlar/firat-aydinus/fenerbahcenin-iki-penaltisi-verilmedi-43274773",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-08-16",
+              "excerpt": "49. dakikada Müldür’ün kafa vuruşu sırasında Seko Koita’nın kontrolsüz müdahalesi penaltı olmalıydı.",
+              "approved": true
+            }
+          ]
+        },
+        {
+          "minute": 58,
+          "eventType": "YELLOW_CARD",
+          "onFieldDecision": "Sarı kart (Kerem Aktürkoğlu)",
+          "editorialVerdict": "CORRECT",
+          "impactLevel": "LOW",
+          "confidence": "HIGH_CONFIDENCE",
+          "description": "Maç raporuna göre karşılaşmanın tek sarı kartı 58′ Kerem Aktürkoğlu. Trio bu kartı hatalı saymadı.",
+          "ifabRule": "IFAB 12 — Uyarı",
+          "ifabUrl": "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+          "sourceConfidence": 72,
+          "sources": [
+            {
+              "title": "58′ sarı kart",
+              "publisher": "Mynet",
+              "url": "https://www.mynet.com/spor/canli-mac-anlatimi-ve-sonuclari/2057613-genclerbirligi-fenerbahce",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-08-15",
+              "excerpt": "Canlı anlatım: 58. dakikada Fenerbahçe’de Kerem Aktürkoğlu sarı kart gördü.",
+              "approved": true
+            },
+            {
+              "title": "Sarı kart listesi",
+              "publisher": "Haberler.com",
+              "url": "https://www.haberler.com/spor/genclerbirligi-fenerbahce-2-1-20148834-haberi/",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-08-15",
+              "excerpt": "SARI KART: Kerem Aktürkoğlu (Fenerbahçe).",
+              "approved": true
+            }
+          ]
+        },
+        {
+          "minute": 71,
+          "eventType": "PENALTY",
+          "onFieldDecision": "Devam (Talisca şutu, Goutas el iddiası)",
+          "editorialVerdict": "DEBATABLE",
+          "impactLevel": "CRITICAL",
+          "confidence": "SPLIT",
+          "description": "71′ Talisca şutu, Goutas el. Trio bölündü (Demirel penaltı; Yıldırım ve Çoban devam). Fırat Aydınus, Ahmet Çakar ve Mustafa Çulcu penaltı ve VAR sessizliği dedi. Uzmanlar hâlâ bölünmüş; %40 uygulandı.",
+          "ifabRule": "IFAB 12 — El",
+          "ifabUrl": "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+          "sourceConfidence": 68,
+          "sources": [
+            {
+              "title": "El pozisyonunda görüş ayrılığı",
+              "publisher": "Fanatik / beIN Trio",
+              "url": "https://www.fanatik.com.tr/fenerbahce/galeri-genclerbirligi-fenerbahce-macindaki-cok-tartisilan-iki-pozisyona-triodan-son-nokta-boyle-bir-hamle-yok-2634493",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-08-16",
+              "excerpt": "Seçim Demirel kolun doğal olmadığını ve penaltı gerektiğini savundu. Yıldırım ve Çoban devamı doğru, VAR müdahalesini gereksiz buldu.",
+              "approved": true
+            },
+            {
+              "title": "Goutas eli doğal konumda değildi",
+              "publisher": "Fırat Aydınus / Hürriyet",
+              "url": "https://www.hurriyet.com.tr/sporarena/yazarlar/firat-aydinus/fenerbahcenin-iki-penaltisi-verilmedi-43274773",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-08-16",
+              "excerpt": "71′ Talisca şutunda Goutas’ın eli doğal konumda değildi, penaltı verilmeliydi.",
+              "approved": true
+            },
+            {
+              "title": "Penaltı güme gitti",
+              "publisher": "Ahmet Çakar",
+              "url": "https://www.gzt.com/spor/genclerbirligi-fenerbahce-macinda-olay-karar-ahmet-cakar-ve-mustafa-culcu-hakeme-buyuk-tepki-gosterdi-4251673",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-08-16",
+              "excerpt": "Çakar: 71′ stoperin kolu açık, el teması var, VAR’dan tık yok, penaltı güme gitti.",
+              "approved": true
+            },
+            {
+              "title": "Pozisyon penaltı",
+              "publisher": "Mustafa Çulcu",
+              "url": "https://www.gzt.com/spor/genclerbirligi-fenerbahce-macinda-olay-karar-ahmet-cakar-ve-mustafa-culcu-hakeme-buyuk-tepki-gosterdi-4251673",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-08-16",
+              "excerpt": "Çulcu: Goutas’ın sağ kolu açık genişliyor, el ucu temas; pozisyon penaltı. Yabancı VAR neden yapmadı?",
+              "approved": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "galatasaray-goztepe-2026-3",
+      "season": "2026/27",
+      "week": 3,
+      "playedAt": "2026-08-29T21:30:00+03:00",
+      "stadium": "RAMS Park",
+      "tmReportId": "4933659",
+      "home": {
+        "id": "gs",
+        "name": "Galatasaray",
+        "shortName": "GS"
+      },
+      "away": {
+        "id": "goztepe",
+        "name": "Göztepe",
+        "shortName": "GÖZ"
+      },
+      "homeScore": 3,
+      "awayScore": 2,
+      "isDemo": false,
+      "officials": [
+        {
+          "role": "CENTER",
+          "refereeSlug": "mehmet-turkmen"
+        },
+        {
+          "role": "ASSISTANT",
+          "refereeSlug": "ceyhun-sesiguzel"
+        },
+        {
+          "role": "ASSISTANT",
+          "refereeSlug": "abdullah-bora-ozkara"
+        },
+        {
+          "role": "FOURTH",
+          "refereeSlug": "ayberk-demirbas"
+        },
+        {
+          "role": "VAR",
+          "refereeSlug": "pawel-malec"
+        },
+        {
+          "role": "AVAR",
+          "refereeSlug": "ozer-ozden"
+        }
+      ],
+      "sources": [
+        {
+          "title": "Galatasaray SK - Göztepe maç raporu",
+          "publisher": "Transfermarkt",
+          "url": "https://www.transfermarkt.com.tr/spielbericht/index/spielbericht/4933659",
+          "sourceType": "NEWS",
+          "publishedAt": "2026-08-29",
+          "excerpt": "3-2, RAMS Park, orta hakem Mehmet Türkmen. Osimhen penaltı golü kayıtta.",
+          "approved": true
+        },
+        {
+          "title": "VAR: Pawel Malec",
+          "publisher": "A Spor",
+          "url": "https://www.aspor.com.tr/galatasaray/2026/08/29/galatasaray-goztepe-macinin-vari-pawel-malec-oldu",
+          "sourceType": "NEWS",
+          "publishedAt": "2026-08-29",
+          "excerpt": "TFF görevlendirmesi: yardımcı Ceyhun Sesigüzel ve Abdullah Bora Özkara, dördüncü Ayberk Demirbaş, AVAR Özer Özden.",
+          "approved": true
+        },
+        {
+          "title": "Sarı kartlar",
+          "publisher": "Spiegel Sportdaten",
+          "url": "https://sportdaten.spiegel.de/fussball/tuerkei-sueper-lig/ma12280009/galatasaray_goeztepe/spielstatistik-fairplay/",
+          "sourceType": "NEWS",
+          "publishedAt": "2026-08-29",
+          "excerpt": "Fair-play kaydı: Eren Elmalı 10′, Barış Yılmaz 74′, André Henrique 80′, Malcom Bokele 90′. Kırmızı yok.",
+          "approved": true
+        },
+        {
+          "approved": true,
+          "title": "VAR karışamaz",
+          "publisher": "Mustafa Çulcu / Sabah",
+          "url": "https://www.sabah.com.tr/yazarlar/spor/mustafa-culcu/2026/08/30/var-karisamaz",
+          "sourceType": "EXPERT_COMMENTARY",
+          "publishedAt": "2026-08-30",
+          "excerpt": "59′ penaltı sahada hakemin işi, VAR karışamaz. 70′ Barış sarı doğru. 86′ Sanchez bacaklardan seken top. İlk gol öncesi Henrique sarı eksik (tek kaynak, incelemeye açık)."
+        },
+        {
+          "approved": true,
+          "title": "Galatasaray 3-2 Göztepe maç raporu",
+          "publisher": "Galatasaray.org",
+          "url": "https://www.galatasaray.org/haber/futbol/galatasaray-3-2-goztepe/60841",
+          "sourceType": "NEWS",
+          "publishedAt": "2026-08-29",
+          "excerpt": "36′ Henrique itiraz sarısı. Yunus 81′ çıktı, Elmalı girdi; 10′ Elmalı kaydı kulüp raporuyla çelişir."
+        }
+      ],
+      "incidents": [
+        {
+          "minute": 15,
+          "eventType": "YELLOW_CARD",
+          "onFieldDecision": "Kart yok (Henrique, Yunus çekme)",
+          "editorialVerdict": "OPEN_REVIEW",
+          "impactLevel": "LOW",
+          "confidence": "INSUFFICIENT",
+          "description": "Çulcu: ilk gol (16′) öncesi Yunus’a çekme frikik doğru, Henrique’ye sarı eksik. Dakika kulüp raporunda yok; tek uzman. İncelemeye açık, puan kesilmedi.",
+          "ifabRule": "IFAB 12 — Uyarı",
+          "ifabUrl": "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+          "sourceConfidence": 48,
+          "sources": [
+            {
+              "approved": true,
+              "title": "VAR karışamaz",
+              "publisher": "Mustafa Çulcu / Sabah",
+              "url": "https://www.sabah.com.tr/yazarlar/spor/mustafa-culcu/2026/08/30/var-karisamaz",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-08-30",
+              "excerpt": "İlk gol öncesi Yunus’a yapılan çekme faul ve frikik doğru ama Henrique’ye sarı eksik kaldı."
+            }
+          ]
+        },
+        {
+          "minute": 36,
+          "eventType": "YELLOW_CARD",
+          "onFieldDecision": "Sarı kart (André Henrique, itiraz)",
+          "editorialVerdict": "CORRECT",
+          "impactLevel": "LOW",
+          "confidence": "HIGH_CONFIDENCE",
+          "description": "36′ Göztepe: André Henrique itiraz sarısı (kulüp raporu). Spiegel 80′ yazar; aynı oyuncuya ikinci sarı/kırmızı yok. Trio kartı ayrı hatalı işlemedi.",
+          "ifabRule": "IFAB 12 — Uyarı",
+          "ifabUrl": "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+          "sourceConfidence": 72,
+          "sources": [
+            {
+              "title": "Gelbe & Rote Karten",
+              "publisher": "Spiegel Sportdaten",
+              "url": "https://sportdaten.spiegel.de/fussball/tuerkei-sueper-lig/ma12280009/galatasaray_goeztepe/spielstatistik-fairplay/",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-08-29",
+              "excerpt": "Spiegel 80′ Henrique yazar; kulüp raporu 36′ itiraz sarısı verir.",
+              "approved": true
+            },
+            {
+              "title": "Maç özeti kartlar",
+              "publisher": "81ilhaberleri",
+              "url": "https://81ilhaberleri.com/2026/08/30/ozet-galatasaray-goztepe-maci-ozeti-ve-tum-onemli-anlari/",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-08-30",
+              "excerpt": "Hakem Mehmet Türkmen yönetiminde Elmalı, Barış Alper, André Henrique ve Bokele sarı gördü.",
+              "approved": true
+            },
+            {
+              "approved": true,
+              "title": "36′ Henrique sarı",
+              "publisher": "Galatasaray.org",
+              "url": "https://www.galatasaray.org/haber/futbol/galatasaray-3-2-goztepe/60841",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-08-29",
+              "excerpt": "36. dakikada konuk ekip oyuncusu Henrique itirazından dolayı sarı kart gördü."
+            }
+          ]
+        },
+        {
+          "minute": 59,
+          "eventType": "PENALTY",
+          "onFieldDecision": "Önce devam, 62′ VAR sonrası penaltı (Osimhen / Akonnor)",
+          "editorialVerdict": "DEBATABLE",
+          "impactLevel": "CRITICAL",
+          "confidence": "SPLIT",
+          "description": "59′ saha kararı devam, 62′ VAR sonrası penaltı. Trio: VAR açık-bariz eşiğinin altında. Ahmet Çakar: ‘üst düzey futbolda böyle penaltı yok’, hatalı çaldırıldı. Fırat Aydınus: Malec hangi kriterle monitöre çağırdı?",
+          "ifabRule": "IFAB 12 / VAR protokolü",
+          "ifabUrl": "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+          "sourceConfidence": 84,
+          "sources": [
+            {
+              "title": "VAR müdahalesi hatalı",
+              "publisher": "Milliyet / beIN Trio",
+              "url": "https://www.milliyet.com.tr/skorer/galatasaray-goztepe-macinin-tartismali-pozisyonlarini-trio-hakemleri-degerlendirdi-var-mudahalesi-hatali-7650773",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-08-30",
+              "excerpt": "Bülent Yıldırım: ‘Asla açık ve bariz bir pozisyon değil. Video hakemle penaltı verilmesini doğru bulmuyorum.’ Seçim Demirel: ‘Saha kararı desteklenir, VAR müdahalesi hatalı.’",
+              "approved": true
+            },
+            {
+              "title": "Trio penaltı pozisyonunda hemfikir",
+              "publisher": "Yeniçağ",
+              "url": "https://www.yenicaggazetesi.com/trio-galatasaray-goztepe-macindaki-penalti-pozisyonunda-hemfikir-1066589h.htm",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-08-30",
+              "excerpt": "Deniz Çoban: UEFA çizgisine göre yorum sahada kalmalıydı; VAR müdahalesi hatalıydı.",
+              "approved": true
+            },
+            {
+              "title": "Böyle penaltı yok",
+              "publisher": "Ahmet Çakar / A Spor",
+              "url": "https://www.aspor.com.tr/galatasaray/2026/08/30/galatasarayin-kazandigi-penalti-dogru-mu-ahmet-cakar-acikladi",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-08-30",
+              "excerpt": "Çakar: İkinci yarıdaki penaltı içler acısı. Flu pozisyonlarda VAR hakemi çağırmazdı; dün çağırdı ve hatalı penaltı çaldırdı.",
+              "approved": true
+            },
+            {
+              "title": "Polonyalı VAR Türkmen’i neden çağırdı?",
+              "publisher": "Fırat Aydınus / Hürriyet",
+              "url": "https://www.hurriyet.com.tr/sporarena/yazarlar/firat-aydinus/polonyali-var-turkmeni-neden-cagirdi-43289642",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-08-30",
+              "excerpt": "Aydınus: Bu temas monitöre çağıracak kadar yeterli miydi? Malec hangi protokol kriterine göre çağırdı?",
+              "approved": true
+            },
+            {
+              "approved": true,
+              "title": "VAR karışamaz",
+              "publisher": "Mustafa Çulcu / Sabah",
+              "url": "https://www.sabah.com.tr/yazarlar/spor/mustafa-culcu/2026/08/30/var-karisamaz",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-08-30",
+              "excerpt": "59′ Galatasaray penaltısı sahada hakemin işi. Dikkatsiz temas; hakem verir veya vermez ama VAR’ın işi değil."
+            }
+          ]
+        },
+        {
+          "minute": 67,
+          "eventType": "OFFSIDE",
+          "onFieldDecision": "Gol iptali, ofsayt (Osimhen)",
+          "editorialVerdict": "CORRECT",
+          "impactLevel": "CRITICAL",
+          "confidence": "HIGH_CONFIDENCE",
+          "description": "67′ Osimhen kafa golü yarı otomatik ofsaytla iptal. Trio: çizgi doğru, karar yerinde.",
+          "ifabRule": "IFAB 11",
+          "ifabUrl": "https://www.theifab.com/laws/latest/offside/",
+          "sourceConfidence": 85,
+          "sources": [
+            {
+              "title": "Trio’dan ofsayt golü için ortak görüş",
+              "publisher": "BirGün / beIN Trio",
+              "url": "https://www.birgun.net/haber/triodan-galatasaray-goztepe-macindaki-penalti-icin-ortak-gorus-731897",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-08-30",
+              "excerpt": "Yıldırım: Osimhen’in ayağı rakip savunmadan ileride; yarı otomatik sistem doğruladı. Trio iptali doğru buldu.",
+              "approved": true
+            }
+          ]
+        },
+        {
+          "minute": 74,
+          "eventType": "YELLOW_CARD",
+          "onFieldDecision": "Sarı kart (Barış Alper Yılmaz)",
+          "editorialVerdict": "CORRECT",
+          "impactLevel": "LOW",
+          "confidence": "HIGH_CONFIDENCE",
+          "description": "74′ Galatasaray: Barış Alper Yılmaz sarı kart (Spiegel). Çulcu aynı hamleyi 70′ yazar: kolunu araç olarak kullanıyor, sarı doğru.",
+          "ifabRule": "IFAB 12 — Uyarı",
+          "ifabUrl": "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+          "sourceConfidence": 72,
+          "sources": [
+            {
+              "title": "Gelbe & Rote Karten",
+              "publisher": "Spiegel Sportdaten",
+              "url": "https://sportdaten.spiegel.de/fussball/tuerkei-sueper-lig/ma12280009/galatasaray_goeztepe/spielstatistik-fairplay/",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-08-29",
+              "excerpt": "Barış Alper Yılmaz, 74. dakika sarı kart.",
+              "approved": true
+            },
+            {
+              "title": "Maç özeti kartlar",
+              "publisher": "81ilhaberleri",
+              "url": "https://81ilhaberleri.com/2026/08/30/ozet-galatasaray-goztepe-maci-ozeti-ve-tum-onemli-anlari/",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-08-30",
+              "excerpt": "Hakem Mehmet Türkmen yönetiminde Elmalı, Barış Alper, André Henrique ve Bokele sarı gördü.",
+              "approved": true
+            },
+            {
+              "approved": true,
+              "title": "70′ Barış sarı doğru",
+              "publisher": "Mustafa Çulcu / Sabah",
+              "url": "https://www.sabah.com.tr/yazarlar/spor/mustafa-culcu/2026/08/30/var-karisamaz",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-08-30",
+              "excerpt": "70′te Barış kolunu araç olarak kullanıyor, sarı doğru."
+            }
+          ]
+        },
+        {
+          "minute": 86,
+          "eventType": "PENALTY",
+          "onFieldDecision": "Devam / korner (Sanchez el iddiası)",
+          "editorialVerdict": "CORRECT",
+          "impactLevel": "CRITICAL",
+          "confidence": "HIGH_CONFIDENCE",
+          "description": "86–87′ Göztepe, Sanchez el-penaltısı bekledi. Trio üçlü ve Aydınus: doğal konum. Bitnel: bacağından sekiyor, ele temas etse bile genişleme yok. Çulcu: VAR 1,5 dk anlamsız.",
+          "ifabRule": "IFAB 12 — El",
+          "ifabUrl": "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+          "sourceConfidence": 86,
+          "sources": [
+            {
+              "title": "El teması penaltı değil",
+              "publisher": "Milliyet / beIN Trio",
+              "url": "https://www.milliyet.com.tr/skorer/galatasaray-goztepe-macinin-tartismali-pozisyonlarini-trio-hakemleri-degerlendirdi-var-mudahalesi-hatali-7650773",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-08-30",
+              "excerpt": "Seçim Demirel: elle oynama kriterleri yok. Yıldırım ve Çoban doğal konumda devam dedi.",
+              "approved": true
+            },
+            {
+              "title": "Sanchez eli doğal konumda",
+              "publisher": "Fırat Aydınus / Hürriyet",
+              "url": "https://www.hurriyet.com.tr/sporarena/yazarlar/firat-aydinus/polonyali-var-turkmeni-neden-cagirdi-43289642",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-08-30",
+              "excerpt": "Göztepe’nin 87. dakikada beklediği pozisyonda Sanchez’in eli doğal konumda; penaltı verilmemesi doğru.",
+              "approved": true
+            },
+            {
+              "approved": true,
+              "title": "Penaltı mı, değil mi?",
+              "publisher": "Deniz Ateş Bitnel / Yeni Şafak",
+              "url": "https://www.yenisafak.com/galeri/spor/galatasaray-goztepe-macinda-tartisilan-an-penalti-mi-degil-mi-4851805",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-08-30",
+              "excerpt": "Bitnel: 87′ top Davinson’un bacağından sekiyor. Eline temas etse bile penaltı olmaz, genişleme yok. Trio üçlü aynı görüşte."
+            },
+            {
+              "approved": true,
+              "title": "VAR karışamaz",
+              "publisher": "Mustafa Çulcu / Sabah",
+              "url": "https://www.sabah.com.tr/yazarlar/spor/mustafa-culcu/2026/08/30/var-karisamaz",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-08-30",
+              "excerpt": "86′da Göztepe penaltı beklentisinde, Sanchez’in bacakları arasından seken top; VAR neyi 1,5 dakika izledi anlamış değiliz."
+            }
+          ]
+        },
+        {
+          "minute": 90,
+          "eventType": "YELLOW_CARD",
+          "onFieldDecision": "Sarı kart (Malcom Bokele)",
+          "editorialVerdict": "CORRECT",
+          "impactLevel": "LOW",
+          "confidence": "HIGH_CONFIDENCE",
+          "description": "90′ Göztepe: Malcom Bokele sarı kart. Fair-play kaydı; Trio bu kartı ayrı hatalı işlemedi.",
+          "ifabRule": "IFAB 12 — Uyarı",
+          "ifabUrl": "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+          "sourceConfidence": 72,
+          "sources": [
+            {
+              "title": "Gelbe & Rote Karten",
+              "publisher": "Spiegel Sportdaten",
+              "url": "https://sportdaten.spiegel.de/fussball/tuerkei-sueper-lig/ma12280009/galatasaray_goeztepe/spielstatistik-fairplay/",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-08-29",
+              "excerpt": "Malcom Bokele, 90. dakika sarı kart.",
+              "approved": true
+            },
+            {
+              "title": "Maç özeti kartlar",
+              "publisher": "81ilhaberleri",
+              "url": "https://81ilhaberleri.com/2026/08/30/ozet-galatasaray-goztepe-maci-ozeti-ve-tum-onemli-anlari/",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-08-30",
+              "excerpt": "Hakem Mehmet Türkmen yönetiminde Elmalı, Barış Alper, André Henrique ve Bokele sarı gördü.",
+              "approved": true
+            }
+          ]
+        },
+        {
+          "minute": 90,
+          "eventType": "YELLOW_CARD",
+          "onFieldDecision": "Sarı kart (Eren Elmalı, uzatma)",
+          "editorialVerdict": "CORRECT",
+          "impactLevel": "LOW",
+          "confidence": "HIGH_CONFIDENCE",
+          "description": "Eren Elmalı sarı kart. Spiegel 10′ yazar; kulüp raporu Elmalı’yı 81′ oyuna alır. Transfermarkt uzatma sarısı kaydeder. Trio bu kartı ayrı hatalı işlemedi.",
+          "ifabRule": "IFAB 12 — Uyarı",
+          "ifabUrl": "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+          "sourceConfidence": 72,
+          "sources": [
+            {
+              "title": "Gelbe & Rote Karten",
+              "publisher": "Spiegel Sportdaten",
+              "url": "https://sportdaten.spiegel.de/fussball/tuerkei-sueper-lig/ma12280009/galatasaray_goeztepe/spielstatistik-fairplay/",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-08-29",
+              "excerpt": "Spiegel 10′ Elmalı yazar; oyuncu 81′ girdi. Kart, uzatma kaydı olarak tutuldu.",
+              "approved": true
+            },
+            {
+              "title": "Maç özeti kartlar",
+              "publisher": "81ilhaberleri",
+              "url": "https://81ilhaberleri.com/2026/08/30/ozet-galatasaray-goztepe-maci-ozeti-ve-tum-onemli-anlari/",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-08-30",
+              "excerpt": "Hakem Mehmet Türkmen yönetiminde Elmalı, Barış Alper, André Henrique ve Bokele sarı gördü.",
+              "approved": true
+            },
+            {
+              "approved": true,
+              "title": "Galatasaray 3-2 Göztepe",
+              "publisher": "Galatasaray.org",
+              "url": "https://www.galatasaray.org/haber/futbol/galatasaray-3-2-goztepe/60841",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-08-29",
+              "excerpt": "81′ Yunus–Elmalı değişikliği. Elmalı sonraki kontratakta faulle durdurunca sarı gördü."
+            }
+          ],
+          "extraMinute": 4
+        }
+      ]
+    },
+    {
+      "slug": "samsunspor-fenerbahce-2026-3",
+      "season": "2026/27",
+      "week": 3,
+      "playedAt": "2026-08-30T21:30:00+03:00",
+      "stadium": "Samsun Yeni 19 Mayıs Stadyumu",
+      "home": {
+        "id": "samsunspor",
+        "name": "Samsunspor",
+        "shortName": "SAM"
+      },
+      "away": {
+        "id": "fb",
+        "name": "Fenerbahçe",
+        "shortName": "FB"
+      },
+      "homeScore": 0,
+      "awayScore": 2,
+      "isDemo": false,
+      "officials": [
+        {
+          "role": "CENTER",
+          "refereeSlug": "yasin-kol"
+        },
+        {
+          "role": "ASSISTANT",
+          "refereeSlug": "anil-usta"
+        },
+        {
+          "role": "ASSISTANT",
+          "refereeSlug": "bahtiyar-birinci"
+        },
+        {
+          "role": "FOURTH",
+          "refereeSlug": "yucel-buyuk"
+        },
+        {
+          "role": "VAR",
+          "refereeSlug": "richard-martens"
+        },
+        {
+          "role": "AVAR",
+          "refereeSlug": "murat-altin"
+        }
+      ],
+      "sources": [
+        {
+          "title": "3. hafta: Samsunspor 0-2 Fenerbahçe",
+          "publisher": "Anadolu Ajansı",
+          "url": "https://www.aa.com.tr/tr/spor/trendyol-super-ligde-ucuncu-hafta-karsilasmalari-oynandi/4043126",
+          "sourceType": "NEWS",
+          "publishedAt": "2026-08-31",
+          "excerpt": "Fenerbahçe deplasmanda 2-0 kazandı. Hakem Yasin Kol.",
+          "approved": true
+        },
+        {
+          "title": "Sarı kartlar: Fink 25′, Lukaku 70′",
+          "publisher": "Skorjet",
+          "url": "https://www.skorjet.net/mac/samsunspor-fenerbahce-19746628",
+          "sourceType": "NEWS",
+          "publishedAt": "2026-08-30",
+          "excerpt": "25′ Samsunspor teknik direktörü Thorsten Fink sarı; 70′ Romelu Lukaku sarı. Oyuncu sarılarında Fenerbahçe 1.",
+          "approved": true
+        },
+        {
+          "approved": true,
+          "title": "Hem penaltı hem de kırmızı",
+          "publisher": "Mustafa Çulcu / Sabah",
+          "url": "https://www.sabah.com.tr/yazarlar/spor/mustafa-culcu/2026/08/31/hem-penalti-hem-de-kirmizi",
+          "sourceType": "EXPERT_COMMENTARY",
+          "publishedAt": "2026-08-31",
+          "excerpt": "5′ Guarino–Muriqi net penaltı ve sarı. 44′ Semedo kırmızı. Fink sarı doğru."
+        },
+        {
+          "approved": true,
+          "title": "Samsun’da skandal pozisyonlar",
+          "publisher": "Haber7 / eski hakemler",
+          "url": "https://spor.haber7.com/super-lig/haber/3655638-samsunda-skandal-pozisyonlar-2-takim-da-isyan-etti-eski-hakemler-acikladi",
+          "sourceType": "EXPERT_COMMENTARY",
+          "publishedAt": "2026-08-30",
+          "excerpt": "Bitnel: Muriqi müdahalesi çarpışma değil, penaltı. Semedo basması için Taşçıoğlu, Yıldırım ve Çoban kırmızı."
+        }
+      ],
+      "incidents": [
+        {
+          "minute": 5,
+          "eventType": "PENALTY",
+          "onFieldDecision": "Devam",
+          "editorialVerdict": "INCORRECT",
+          "impactLevel": "CRITICAL",
+          "confidence": "HIGH_CONFIDENCE_WRONG",
+          "description": "Guarino’nun Muriqi’ye geç taban müdahalesi. Trio, Aydınus, Çulcu, Bitnel ve Akçer penaltı dedi. Ahmet Çakar karşı: çarpışma. Çoğunluk penaltı; tam ceza korundu.",
+          "ifabRule": "IFAB 12",
+          "ifabUrl": "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+          "sourceConfidence": 92,
+          "sources": [
+            {
+              "title": "Üç hakem de aynı görüşte: net penaltı",
+              "publisher": "Habertürk / beIN Trio",
+              "url": "https://www.haberturk.com/spor/foto/eski-hakemler-samsunspor-fenerbahce-macindaki-pozisyonlari-degerlendirdi-penalti-ve-kirmizi-kart-yorumu-3909193",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-08-31",
+              "excerpt": "Bülent Yıldırım: ‘Kontrolsüz şekilde tabanıyla rakibine çarpıyor. Net penaltı ve sarı kart. VAR müdahalesi de gerekirdi.’",
+              "approved": true
+            },
+            {
+              "title": "Trio’dan penaltı ve kırmızı kart yorumu",
+              "publisher": "Yeniçağ",
+              "url": "https://www.yenicaggazetesi.com/samsunspor-fenerbahce-macina-triodan-penalti-ve-kirmizi-kart-yorumu-1066809h.htm",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-08-31",
+              "excerpt": "Aleks Taşçıoğlu ve Deniz Çoban da penaltı görüşünde birleşti. Hakem Yasin Kol devam etti.",
+              "approved": true
+            },
+            {
+              "title": "Guarino kontrolsüz, penaltı",
+              "publisher": "Fırat Aydınus",
+              "url": "https://www.hurriyet.com.tr/sporarena/fenerbahceden-penalti-samsunspordan-kirmizi-kart-beklentisi-yasin-kolun-kararlari-damga-vurdu-43290533",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-08-30",
+              "excerpt": "Aydınus: Dakika 5 Guarino kontrolsüz eylemiyle risk alıyor, geç kaldığı müdahale penaltıya sebebiyet veriyor.",
+              "approved": true
+            },
+            {
+              "title": "Penaltı yok, kırmızı var",
+              "publisher": "Ahmet Çakar / Sabah",
+              "url": "https://www.sabah.com.tr/yazarlar/spor/cakar/2026/08/31/penalti-yok-kirmizi-var",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-08-31",
+              "excerpt": "Çakar: Herkes penaltı dedi; bence çarpışma. Böyle penaltı futbolun doğasına aykırı olurdu.",
+              "approved": true
+            },
+            {
+              "approved": true,
+              "title": "Hem penaltı hem de kırmızı",
+              "publisher": "Mustafa Çulcu / Sabah",
+              "url": "https://www.sabah.com.tr/yazarlar/spor/mustafa-culcu/2026/08/31/hem-penalti-hem-de-kirmizi",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-08-31",
+              "excerpt": "5. dakikada Guarino’nun Vedat Muriqi’ye kayarak geç kaldığı kontrolsüz hareket net penaltı ve sarı kart."
+            },
+            {
+              "approved": true,
+              "title": "Muriqi penaltı bekledi: eski hakemler ne dedi?",
+              "publisher": "Yeni Şafak",
+              "url": "https://www.yenisafak.com/galeri/spor/samsunspor-fenerbahce-macinda-muriqi-penalti-bekledi-eski-hakemler-pozisyona-ne-dedi-4851976",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-08-31",
+              "excerpt": "Aydınus: dakika 5 penaltı. Serdar Akçer: hız ve yoğunluk var, kontrolsüz hareketten sarı kart ve penaltı olmalı."
+            },
+            {
+              "approved": true,
+              "title": "Samsun’da skandal pozisyonlar",
+              "publisher": "Deniz Ateş Bitnel / Haber7",
+              "url": "https://spor.haber7.com/super-lig/haber/3655638-samsunda-skandal-pozisyonlar-2-takim-da-isyan-etti-eski-hakemler-acikladi",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-08-30",
+              "excerpt": "Bitnel: Vedat Muriqi’ye yapılan müdahale çarpışma değil. Penaltı olmalıydı."
+            }
+          ]
+        },
+        {
+          "minute": 25,
+          "eventType": "YELLOW_CARD",
+          "onFieldDecision": "Sarı kart (Thorsten Fink)",
+          "editorialVerdict": "CORRECT",
+          "impactLevel": "LOW",
+          "confidence": "HIGH_CONFIDENCE",
+          "description": "25′ Samsunspor teknik direktörü Thorsten Fink sarı kart. Çulcu: Fink’e sarı doğru. Trio tartışmadı.",
+          "ifabRule": "IFAB 12 — Uyarı",
+          "ifabUrl": "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+          "sourceConfidence": 72,
+          "sources": [
+            {
+              "title": "25′ Fink sarı",
+              "publisher": "Canlı Gaste",
+              "url": "https://www.canligaste.com/super-lig-3-samsunspor-fenerbahce-mac-sonucu-0-2/901533/",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-08-30",
+              "excerpt": "25. dakika — Thorsten Fink: sarı kart.",
+              "approved": true
+            },
+            {
+              "approved": true,
+              "title": "Hem penaltı hem de kırmızı",
+              "publisher": "Mustafa Çulcu / Sabah",
+              "url": "https://www.sabah.com.tr/yazarlar/spor/mustafa-culcu/2026/08/31/hem-penalti-hem-de-kirmizi",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-08-31",
+              "excerpt": "Teknik direktör Fink’e sarı doğru. İsmail Kartal aynısını yaptı, ona niye yok? (Kartal dakikası yok, ikinci kart nota girmedi.)"
+            }
+          ]
+        },
+        {
+          "minute": 44,
+          "eventType": "RED_CARD",
+          "onFieldDecision": "Faul yok / kart yok (Semedo)",
+          "editorialVerdict": "INCORRECT",
+          "impactLevel": "CRITICAL",
+          "confidence": "HIGH_CONFIDENCE_WRONG",
+          "description": "Nelson Semedo’nun Yalçın Kayan’a taban/çiviyle basması (raporlarda 42–44′). Trio, Aydınus, Çakar, Çulcu ve Taşçıoğlu kırmızı ve VAR müdahalesi dedi.",
+          "ifabRule": "IFAB 12 — Ciddi faullü oyun",
+          "ifabUrl": "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+          "sourceConfidence": 90,
+          "sources": [
+            {
+              "title": "Çok net bir kırmızı kart",
+              "publisher": "Milliyet / beIN Trio",
+              "url": "https://www.milliyet.com.tr/skorer/samsunspor-fenerbahce-macinin-tartismali-pozisyonlarini-eski-hakemler-degerlendirdi-cok-net-bir-kirmizi-kart-7651257",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-08-31",
+              "excerpt": "Yıldırım: ‘Ayağın tabanıyla kalf bölgesine çiviyi bastırıyor. Çok net kırmızı kart. VAR bunu görmüyor mu?’ Çoban: hakem faul bile değerlendirmemiş, ölü alan, VAR gerekliydi.",
+              "approved": true
+            },
+            {
+              "title": "Semedo basması kırmızı",
+              "publisher": "Fırat Aydınus / Hürriyet",
+              "url": "https://www.hurriyet.com.tr/sporarena/fenerbahceden-penalti-samsunspordan-kirmizi-kart-beklentisi-yasin-kolun-kararlari-damga-vurdu-43290533",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-08-30",
+              "excerpt": "Aydınus: Semedo’nun Yalçın’a basması kırmızı kart olmalıydı.",
+              "approved": true
+            },
+            {
+              "title": "Bilerek basıyor, kırmızı yok",
+              "publisher": "Ahmet Çakar / Sabah",
+              "url": "https://www.sabah.com.tr/yazarlar/spor/cakar/2026/08/31/penalti-yok-kirmizi-var",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-08-31",
+              "excerpt": "Çakar: Yasin Kol inanılmaz kötü yönetti. Semedo yerde yatan rakibin ayağına bilerek basıyor; kırmızı yok, VAR sessiz.",
+              "approved": true
+            },
+            {
+              "approved": true,
+              "title": "Hem penaltı hem de kırmızı",
+              "publisher": "Mustafa Çulcu / Sabah",
+              "url": "https://www.sabah.com.tr/yazarlar/spor/mustafa-culcu/2026/08/31/hem-penalti-hem-de-kirmizi",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-08-31",
+              "excerpt": "44′ Semedo yerdeki Yalçın’ın bacağına kramponun tümüyle bilerek basıyor. Ciddi faulden ihraç olmalıydı."
+            },
+            {
+              "approved": true,
+              "title": "Samsun’da skandal pozisyonlar",
+              "publisher": "Haber7 / eski hakemler",
+              "url": "https://spor.haber7.com/super-lig/haber/3655638-samsunda-skandal-pozisyonlar-2-takim-da-isyan-etti-eski-hakemler-acikladi",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-08-30",
+              "excerpt": "Aleks Taşçıoğlu: çivilerle yaralayıcı basma, kırmızı. Yıldırım: çok net kırmızı, VAR müdahalesi gerekir. Bitnel: Yasin Kol Show devam ediyor."
+            }
+          ]
+        },
+        {
+          "minute": 70,
+          "eventType": "YELLOW_CARD",
+          "onFieldDecision": "Sarı kart (Romelu Lukaku)",
+          "editorialVerdict": "CORRECT",
+          "impactLevel": "LOW",
+          "confidence": "HIGH_CONFIDENCE",
+          "description": "70′ Romelu Lukaku sarı kart. Maç raporlarında Fenerbahçe’nin tek oyuncu sarısı; Trio hatalı demedi.",
+          "ifabRule": "IFAB 12 — Uyarı",
+          "ifabUrl": "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+          "sourceConfidence": 72,
+          "sources": [
+            {
+              "title": "70′ Lukaku sarı",
+              "publisher": "Skorjet",
+              "url": "https://www.skorjet.net/mac/samsunspor-fenerbahce-19746628",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-08-30",
+              "excerpt": "70′ Romelu Lukaku sarı kart. 63′ Muriqi yerine girmişti.",
+              "approved": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "basaksehir-galatasaray-2026-4",
+      "season": "2026/27",
+      "week": 4,
+      "playedAt": "2026-09-04T20:00:00+03:00",
+      "stadium": "Başakşehir Fatih Terim Stadyumu",
+      "home": {
+        "id": "basaksehir",
+        "name": "İstanbul Başakşehir",
+        "shortName": "BŞH"
+      },
+      "away": {
+        "id": "gs",
+        "name": "Galatasaray",
+        "shortName": "GS"
+      },
+      "homeScore": 2,
+      "awayScore": 3,
+      "isDemo": false,
+      "officials": [
+        {
+          "role": "CENTER",
+          "refereeSlug": "kadir-saglam"
+        },
+        {
+          "role": "ASSISTANT",
+          "refereeSlug": "mehmet-kisal"
+        },
+        {
+          "role": "ASSISTANT",
+          "refereeSlug": "esat-sancaktar"
+        }
+      ],
+      "sources": [
+        {
+          "title": "Başakşehir 2-3 Galatasaray maç özeti",
+          "publisher": "Hürriyet",
+          "url": "https://www.hurriyet.com.tr/sporarena/basaksehir-2-3-galatasaray-super-lig-maci-ozeti-43295591",
+          "sourceType": "NEWS",
+          "publishedAt": "2026-09-04",
+          "excerpt": "Hakem Kadir Sağlam. 16′ Osimhen golü VAR ile verildi, 63′ Başakşehir penaltısı, 83′ Sanchez golü ofsayttan iptal, 90′ Sara 3-2.",
+          "approved": true
+        },
+        {
+          "title": "Hakemler: Kadir Sağlam, Mehmet Kısal, Esat Sancaktar",
+          "publisher": "Star",
+          "url": "https://www.star.com.tr/spor/5-gollu-macta-kazanan-galatasaray-deplasmanda-basaksehiri-maglup-etti-haber-2038076/",
+          "sourceType": "NEWS",
+          "publishedAt": "2026-09-04",
+          "excerpt": "Yayımlanan hakem heyeti orta ve iki yardımcıyı verir.",
+          "approved": true
+        },
+        {
+          "title": "Dakika dakika kartlar",
+          "publisher": "Yeni Akit",
+          "url": "https://www.yeniakit.com.tr/haber/canli-anlatim-basaksehir-galatasaray-2021018.html",
+          "sourceType": "NEWS",
+          "publishedAt": "2026-09-04",
+          "excerpt": "37′ Operi, 63′ Sallai, 67′ Sanchez ve Okan Buruk, 78′ Leão sarı; 79′ Bozok kırmızı; 89′ Kharebashvili sarı.",
+          "approved": true
+        },
+        {
+          "approved": true,
+          "title": "Bir penaltı, bir kırmızı, bir iptal gol",
+          "publisher": "Haber7 / eski hakemler",
+          "url": "https://spor.haber7.com/galatasaray/haber/3657093-basaksehirde-tartismali-kararlar-bir-penalti-bir-kirmizi-kart-bir-iptal-edilen-gol",
+          "sourceType": "EXPERT_COMMENTARY",
+          "publishedAt": "2026-09-04",
+          "excerpt": "Bitnel: Sallai penaltısı yanlış; Bozok kırmızısı tartışmaya kapalı. Aydınus aynı hizada."
+        },
+        {
+          "approved": true,
+          "title": "Hakemin standardı yok",
+          "publisher": "Mustafa Çulcu / Sabah",
+          "url": "https://www.sabah.com.tr/yazarlar/spor/mustafa-culcu/2026/09/05/hakemin-standardi-yok",
+          "sourceType": "EXPERT_COMMENTARY",
+          "publishedAt": "2026-09-05",
+          "excerpt": "Operi sarısı doğru. 63′ penaltı sahada hakemin işi, VAR karışmaz. Bozok ihracı doğru. Sanchez ofsayt VAR tespiti."
+        }
+      ],
+      "incidents": [
+        {
+          "minute": 16,
+          "eventType": "GOAL",
+          "onFieldDecision": "Önce devam, VAR sonrası gol (Osimhen)",
+          "editorialVerdict": "CORRECT",
+          "impactLevel": "CRITICAL",
+          "confidence": "HIGH_CONFIDENCE",
+          "description": "Üst direk-çizgi. Trio: top geçti, gol doğru. VAR teyidi skor açısından doğru sonuç verdi.",
+          "ifabRule": "IFAB 10",
+          "ifabUrl": "https://www.theifab.com/laws/latest/determining-the-outcome-of-a-match/",
+          "sourceConfidence": 88,
+          "sources": [
+            {
+              "title": "Osimhen’in çizgiden golü",
+              "publisher": "Sporx / beIN Trio",
+              "url": "https://www.sporx.com/trio-dan-penalti-kirmizi-kart-ve-iptal-edilen-gol-yorumu-SXHBQ1174813SXQ",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-09-05",
+              "excerpt": "Deniz Çoban ve Seçim Demirel yeşil zemin görününce golün geçtiğini; Yıldırım video hakemin çizgiyi çözdüğünü söyledi.",
+              "approved": true
+            }
+          ]
+        },
+        {
+          "minute": 37,
+          "eventType": "YELLOW_CARD",
+          "onFieldDecision": "Sarı kart (Christopher Operi)",
+          "editorialVerdict": "CORRECT",
+          "impactLevel": "LOW",
+          "confidence": "HIGH_CONFIDENCE",
+          "description": "37′ Başakşehir: Christopher Operi sarı kart. Canlı anlatım / maç sonucu kaydı. Trio bu kartı ayrı hatalı işlemedi.",
+          "ifabRule": "IFAB 12 — Uyarı",
+          "ifabUrl": "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+          "sourceConfidence": 72,
+          "sources": [
+            {
+              "title": "Canlı anlatım kartlar",
+              "publisher": "Yeni Akit",
+              "url": "https://www.yeniakit.com.tr/haber/canli-anlatim-basaksehir-galatasaray-2021018.html",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-09-04",
+              "excerpt": "Canlı anlatım sarı ve kırmızı dakikalarını verir.",
+              "approved": true
+            },
+            {
+              "title": "Maç sonucu kart listesi",
+              "publisher": "En Son Dakika",
+              "url": "https://www.ensondakika.com.tr/istanbul-basaksehir-galatasaray-mac-sonucu/697247/",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-09-04",
+              "excerpt": "Operi 37, Sallai 63, Sanchez 67, Okan Buruk 67, Leão 78, Bozok kırmızı 79, Kharebashvili 89.",
+              "approved": true
+            },
+            {
+              "approved": true,
+              "title": "Hakemin standardı yok",
+              "publisher": "Mustafa Çulcu / Sabah",
+              "url": "https://www.sabah.com.tr/yazarlar/spor/mustafa-culcu/2026/09/05/hakemin-standardi-yok",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-09-05",
+              "excerpt": "En doğru kararı Yunus’a yapılan faul ve Operi’ye gösterdiği sarı kart."
+            }
+          ]
+        },
+        {
+          "minute": 63,
+          "eventType": "PENALTY",
+          "onFieldDecision": "Penaltı (Fayzullayev / Sallai)",
+          "editorialVerdict": "INCORRECT",
+          "impactLevel": "CRITICAL",
+          "confidence": "HIGH_CONFIDENCE_WRONG",
+          "description": "63′ Fayzullayev / Sallai penaltısı. Aydınus ve Bitnel: illegal kol yok, penaltı hatalı. Trio devamı daha doğru buldu. Çulcu teması gördü ama ‘penaltı hakemin kararı, VAR karışmaz’ dedi. Eski FIFA + Trio çoğunluğu hatalı; tam ceza.",
+          "ifabRule": "IFAB 12",
+          "ifabUrl": "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+          "sourceConfidence": 88,
+          "sources": [
+            {
+              "title": "Penaltıyı kabul edemiyorum",
+              "publisher": "Fanatik / beIN Trio",
+              "url": "https://www.fanatik.com.tr/galatasaray/galeri-basaksehirin-galatasaray-macinda-kazandigi-penalti-dogru-mu-trio-yorumladi-kabul-edemiyorum-2636749",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-09-05",
+              "excerpt": "Bülent Yıldırım: ‘Penaltıyı kabul edemiyorum.’ Deniz Çoban: illegal kol kullanımı yok, oyun devam etmeliydi.",
+              "approved": true
+            },
+            {
+              "title": "Devam ettirilmeliydi",
+              "publisher": "Mynet / beIN Trio",
+              "url": "https://www.mynet.com/basaksehir-galatasaray-macina-hakem-kararlari-damga-vurmustu-trio-ekibi-yorumladi-devam-ettirilmeliydi-513271-myspor",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-09-05",
+              "excerpt": "Seçim Demirel kararı desteklenebilir buldu ama kendi tercihinin devam olduğunu söyledi. Üçlü devam ağırlıklı.",
+              "approved": true
+            },
+            {
+              "title": "Penaltı kararı hatalıdır",
+              "publisher": "Fırat Aydınus",
+              "url": "https://www.gzt.com/spor/firat-aydinus-acikladi-roland-sallainin-pozisyonu-penalti-mi-galatasaray-maci-4257885",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-09-04",
+              "excerpt": "Sallai’nin hareketinde el/kol illegal kullanımı yoktur. Kolun konumu ve kullanım biçimi ihlal için yeterli değil. Verilen penaltı hatalıdır.",
+              "approved": true
+            },
+            {
+              "approved": true,
+              "title": "Penaltı yanlış karar",
+              "publisher": "Deniz Ateş Bitnel / Haber7",
+              "url": "https://spor.haber7.com/galatasaray/haber/3657093-basaksehirde-tartismali-kararlar-bir-penalti-bir-kirmizi-kart-bir-iptal-edilen-gol",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-09-04",
+              "excerpt": "Bitnel: Bu elin kolun illegal kullanımına girmez. Penaltı yanlış karar."
+            },
+            {
+              "approved": true,
+              "title": "Hakemin standardı yok",
+              "publisher": "Mustafa Çulcu / Sabah",
+              "url": "https://www.sabah.com.tr/yazarlar/spor/mustafa-culcu/2026/09/05/hakemin-standardi-yok",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-09-05",
+              "excerpt": "63′te Sallai önce çekip bırakıyor, sonra sağ kolu ile Fayzullayev’in boynuna temas. Penaltı ve sarı hakemin kararıdır, VAR karışmaz."
+            }
+          ]
+        },
+        {
+          "minute": 67,
+          "eventType": "YELLOW_CARD",
+          "onFieldDecision": "Sarı kart (Davinson Sánchez)",
+          "editorialVerdict": "CORRECT",
+          "impactLevel": "LOW",
+          "confidence": "HIGH_CONFIDENCE",
+          "description": "67′ Galatasaray: Davinson Sánchez sarı kart. Canlı anlatım / maç sonucu kaydı. Trio bu kartı ayrı hatalı işlemedi.",
+          "ifabRule": "IFAB 12 — Uyarı",
+          "ifabUrl": "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+          "sourceConfidence": 72,
+          "sources": [
+            {
+              "title": "Canlı anlatım kartlar",
+              "publisher": "Yeni Akit",
+              "url": "https://www.yeniakit.com.tr/haber/canli-anlatim-basaksehir-galatasaray-2021018.html",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-09-04",
+              "excerpt": "Canlı anlatım sarı ve kırmızı dakikalarını verir.",
+              "approved": true
+            },
+            {
+              "title": "Maç sonucu kart listesi",
+              "publisher": "En Son Dakika",
+              "url": "https://www.ensondakika.com.tr/istanbul-basaksehir-galatasaray-mac-sonucu/697247/",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-09-04",
+              "excerpt": "Operi 37, Sallai 63, Sanchez 67, Okan Buruk 67, Leão 78, Bozok kırmızı 79, Kharebashvili 89.",
+              "approved": true
+            }
+          ]
+        },
+        {
+          "minute": 67,
+          "eventType": "YELLOW_CARD",
+          "onFieldDecision": "Sarı kart (Okan Buruk)",
+          "editorialVerdict": "CORRECT",
+          "impactLevel": "LOW",
+          "confidence": "HIGH_CONFIDENCE",
+          "description": "67′ Galatasaray teknik direktörü: Okan Buruk sarı kart. Canlı anlatım / maç sonucu kaydı. Trio bu kartı ayrı hatalı işlemedi.",
+          "ifabRule": "IFAB 12 — Uyarı",
+          "ifabUrl": "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+          "sourceConfidence": 72,
+          "sources": [
+            {
+              "title": "Canlı anlatım kartlar",
+              "publisher": "Yeni Akit",
+              "url": "https://www.yeniakit.com.tr/haber/canli-anlatim-basaksehir-galatasaray-2021018.html",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-09-04",
+              "excerpt": "Canlı anlatım sarı ve kırmızı dakikalarını verir.",
+              "approved": true
+            },
+            {
+              "title": "Maç sonucu kart listesi",
+              "publisher": "En Son Dakika",
+              "url": "https://www.ensondakika.com.tr/istanbul-basaksehir-galatasaray-mac-sonucu/697247/",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-09-04",
+              "excerpt": "Operi 37, Sallai 63, Sanchez 67, Okan Buruk 67, Leão 78, Bozok kırmızı 79, Kharebashvili 89.",
+              "approved": true
+            }
+          ]
+        },
+        {
+          "minute": 78,
+          "eventType": "YELLOW_CARD",
+          "onFieldDecision": "Sarı kart (Rafael Leão)",
+          "editorialVerdict": "CORRECT",
+          "impactLevel": "LOW",
+          "confidence": "HIGH_CONFIDENCE",
+          "description": "78′ Galatasaray: Rafael Leão sarı kart. Canlı anlatım / maç sonucu kaydı. Trio bu kartı ayrı hatalı işlemedi.",
+          "ifabRule": "IFAB 12 — Uyarı",
+          "ifabUrl": "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+          "sourceConfidence": 72,
+          "sources": [
+            {
+              "title": "Canlı anlatım kartlar",
+              "publisher": "Yeni Akit",
+              "url": "https://www.yeniakit.com.tr/haber/canli-anlatim-basaksehir-galatasaray-2021018.html",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-09-04",
+              "excerpt": "Canlı anlatım sarı ve kırmızı dakikalarını verir.",
+              "approved": true
+            },
+            {
+              "title": "Maç sonucu kart listesi",
+              "publisher": "En Son Dakika",
+              "url": "https://www.ensondakika.com.tr/istanbul-basaksehir-galatasaray-mac-sonucu/697247/",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-09-04",
+              "excerpt": "Operi 37, Sallai 63, Sanchez 67, Okan Buruk 67, Leão 78, Bozok kırmızı 79, Kharebashvili 89.",
+              "approved": true
+            }
+          ]
+        },
+        {
+          "minute": 79,
+          "eventType": "RED_CARD",
+          "onFieldDecision": "Kırmızı kart (Umut Bozok)",
+          "editorialVerdict": "CORRECT",
+          "impactLevel": "CRITICAL",
+          "confidence": "HIGH_CONFIDENCE",
+          "description": "Umut Bozok kırmızısı. Trio üç üye, Bitnel ve Aydınus kararı doğru/net buldu. Çulcu: direkt ihraç doğru.",
+          "ifabRule": "IFAB 12 — İhraç",
+          "ifabUrl": "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+          "sourceConfidence": 87,
+          "sources": [
+            {
+              "title": "Bozok kırmızısı doğru",
+              "publisher": "Mynet / beIN Trio",
+              "url": "https://www.mynet.com/basaksehir-galatasaray-macina-hakem-kararlari-damga-vurmustu-trio-ekibi-yorumladi-devam-ettirilmeliydi-513271-myspor",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-09-05",
+              "excerpt": "beIN Trio ekibinin üç üyesi de kırmızı kart kararını doğru buldu.",
+              "approved": true
+            },
+            {
+              "approved": true,
+              "title": "Kırmızı tartışmaya kapalı",
+              "publisher": "Deniz Ateş Bitnel / Haber7",
+              "url": "https://spor.haber7.com/galatasaray/haber/3657093-basaksehirde-tartismali-kararlar-bir-penalti-bir-kirmizi-kart-bir-iptal-edilen-gol",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-09-04",
+              "excerpt": "Bitnel: Umut Bozok’un gördüğü kırmızı kart tartışmaya kapalı ve net. Aydınus: kırmızı doğru. Trio şüphe yok."
+            },
+            {
+              "approved": true,
+              "title": "Hakemin standardı yok",
+              "publisher": "Mustafa Çulcu / Sabah",
+              "url": "https://www.sabah.com.tr/yazarlar/spor/mustafa-culcu/2026/09/05/hakemin-standardi-yok",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-09-05",
+              "excerpt": "Umut Bozok’un direkt ihracı doğru."
+            }
+          ]
+        },
+        {
+          "minute": 83,
+          "eventType": "OFFSIDE",
+          "onFieldDecision": "Gol iptali, ofsayt (Sanchez)",
+          "editorialVerdict": "CORRECT",
+          "impactLevel": "CRITICAL",
+          "confidence": "HIGH_CONFIDENCE",
+          "description": "Sara serbest vuruş, Sanchez kafa, VAR ofsayt iptali. Trio: temas ve otomatik ofsayt çizgisi tartışmanın merkezinde; kararda bariz hata görmediler.",
+          "ifabRule": "IFAB 11",
+          "ifabUrl": "https://www.theifab.com/laws/latest/offside/",
+          "sourceConfidence": 74,
+          "sources": [
+            {
+              "title": "İptal edilen golde ofsayt var mı?",
+              "publisher": "GZT / beIN Trio",
+              "url": "https://www.gzt.com/spor/galatasarayin-iptal-edilen-golunde-ofsayt-var-mi-trio-yorumculari-pozisyonu-detaylica-yorumladi-4257889",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-09-05",
+              "excerpt": "Yıldırım Sanchez’in topla buluştuğunu ve sistemin küsürat farkla ofsayt verdiğini anlattı. Demirel kararı doğru buldu.",
+              "approved": true
+            },
+            {
+              "approved": true,
+              "title": "Hakemin standardı yok",
+              "publisher": "Mustafa Çulcu / Sabah",
+              "url": "https://www.sabah.com.tr/yazarlar/spor/mustafa-culcu/2026/09/05/hakemin-standardi-yok",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-09-05",
+              "excerpt": "Sanchez’in iptal edilen golü VAR tespiti ile ofsayt."
+            }
+          ]
+        },
+        {
+          "minute": 89,
+          "eventType": "YELLOW_CARD",
+          "onFieldDecision": "Sarı kart (Saba Kharebashvili)",
+          "editorialVerdict": "CORRECT",
+          "impactLevel": "LOW",
+          "confidence": "HIGH_CONFIDENCE",
+          "description": "89′ Başakşehir: Saba Kharebashvili sarı kart. Canlı anlatım / maç sonucu kaydı. Trio bu kartı ayrı hatalı işlemedi.",
+          "ifabRule": "IFAB 12 — Uyarı",
+          "ifabUrl": "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+          "sourceConfidence": 72,
+          "sources": [
+            {
+              "title": "Canlı anlatım kartlar",
+              "publisher": "Yeni Akit",
+              "url": "https://www.yeniakit.com.tr/haber/canli-anlatim-basaksehir-galatasaray-2021018.html",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-09-04",
+              "excerpt": "Canlı anlatım sarı ve kırmızı dakikalarını verir.",
+              "approved": true
+            },
+            {
+              "title": "Maç sonucu kart listesi",
+              "publisher": "En Son Dakika",
+              "url": "https://www.ensondakika.com.tr/istanbul-basaksehir-galatasaray-mac-sonucu/697247/",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-09-04",
+              "excerpt": "Operi 37, Sallai 63, Sanchez 67, Okan Buruk 67, Leão 78, Bozok kırmızı 79, Kharebashvili 89.",
+              "approved": true
+            }
+          ]
+        },
+        {
+          "minute": 90,
+          "extraMinute": 1,
+          "eventType": "GOAL",
+          "onFieldDecision": "Gol (Gabriel Sara, serbest vuruş)",
+          "editorialVerdict": "CORRECT",
+          "impactLevel": "CRITICAL",
+          "confidence": "HIGH_CONFIDENCE",
+          "description": "90+1′ Sara serbest vuruşla 3-2. Trio ve maç özeti golü geçerli saydı; ofsayt/faul itirazı yok.",
+          "ifabRule": "IFAB 13",
+          "ifabUrl": "https://www.theifab.com/laws/latest/free-kicks/",
+          "sourceConfidence": 80,
+          "sources": [
+            {
+              "title": "90′ Gabriel Sara",
+              "publisher": "Yeni Akit",
+              "url": "https://www.yeniakit.com.tr/haber/canli-anlatim-basaksehir-galatasaray-2021018.html",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-09-04",
+              "excerpt": "90′ GOL Gabriel. Maç 2-3 Galatasaray bitti.",
+              "approved": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "fenerbahce-besiktas-2026-4",
+      "season": "2026/27",
+      "week": 4,
+      "playedAt": "2026-09-05T20:00:00+03:00",
+      "stadium": "Chobani Stadyumu",
+      "home": {
+        "id": "fb",
+        "name": "Fenerbahçe",
+        "shortName": "FB"
+      },
+      "away": {
+        "id": "bjk",
+        "name": "Beşiktaş",
+        "shortName": "BJK"
+      },
+      "homeScore": 1,
+      "awayScore": 2,
+      "isDemo": false,
+      "officials": [
+        {
+          "role": "CENTER",
+          "refereeSlug": "halil-umut-meler"
+        },
+        {
+          "role": "ASSISTANT",
+          "refereeSlug": "ibrahim-caglar-uyarcan"
+        },
+        {
+          "role": "ASSISTANT",
+          "refereeSlug": "abdullah-bora-ozkara"
+        },
+        {
+          "role": "FOURTH",
+          "refereeSlug": "batuhan-kolak"
+        }
+      ],
+      "sources": [
+        {
+          "title": "Derbi hakem heyeti",
+          "publisher": "Milli Gazete",
+          "url": "https://www.milligazete.com.tr/fb-bjk-maci-hakemi-kim-oldu-halil-umut-meler-nereli-yardimci-hakemler-kim",
+          "sourceType": "NEWS",
+          "publishedAt": "2026-09-04",
+          "excerpt": "TFF: orta hakem Halil Umut Meler, yardımcılar İbrahim Çağlar Uyarcan ve Abdullah Bora Özkara, dördüncü Batuhan Kolak. Skor 1-2 Beşiktaş.",
+          "approved": true
+        },
+        {
+          "title": "Derbi kartları ve goller",
+          "publisher": "Cumhuriyet",
+          "url": "https://www.cumhuriyet.com.tr/spor/kadikoy-de-vlahovic-ile-guldu-dev-derbide-kazanan-besiktas-2535149",
+          "sourceType": "NEWS",
+          "publishedAt": "2026-09-05",
+          "excerpt": "26 Skriniar, 38 Rıdvan, 73 Vlahovic. Kartlar: 44 Topçu, 45 Greenwood, 52 Skriniar-Ederson-Vlahovic, 59 Černý, 76 Guendouzi (itiraz).",
+          "approved": true
+        },
+        {
+          "title": "Trio derbi yorumu",
+          "publisher": "GZT / beIN Trio",
+          "url": "https://www.gzt.com/spor/fenerbahce-besiktas-hakem-yorumlari-kerem-akturkoglunun-penalti-bekledigi-pozisyon-icin-trio-ekibinden-olay-yorum-4258178",
+          "sourceType": "EXPERT_COMMENTARY",
+          "publishedAt": "2026-09-06",
+          "excerpt": "Çoban ve Demirel: Aktürkoğlu çizgide penaltı. Yıldırım: müdahale dışarıda, devam. Skriniar-Vlahovic için Çoban kırmızı istedi.",
+          "approved": true
+        },
+        {
+          "title": "Beşiktaş istediğini aldı",
+          "publisher": "Fırat Aydınus / Hürriyet",
+          "url": "https://www.hurriyet.com.tr/sporarena/yazarlar/firat-aydinus/besiktas-istedigini-aldi-43297589",
+          "sourceType": "EXPERT_COMMENTARY",
+          "publishedAt": "2026-09-06",
+          "excerpt": "5′ Agbadou el: devam. 50′ düdük zamanlaması yanlış. 52′ Skriniar ve Vlahović kırmızı. 74′ Salih-Kerem faul, açılar dışarıda.",
+          "approved": true
+        },
+        {
+          "title": "Eski hakemler derbiyi değerlendirdi",
+          "publisher": "Haber7",
+          "url": "https://spor.haber7.com/super-lig/haber/3657296-eski-hakemler-derbinin-tartismali-pozisyonlarini-degerlendirdi",
+          "sourceType": "NEWS",
+          "publishedAt": "2026-09-06",
+          "excerpt": "Bitnel, Aydınus, Çoban, Yıldırım, Demirel derbi pozisyonlarını yan yana.",
+          "approved": true
+        },
+        {
+          "title": "Meler tedirgindi",
+          "publisher": "Mustafa Çulcu / A Spor",
+          "url": "https://www.aspor.com.tr/yazarlar/mustafa_culcu/2026/09/06/meler-tedirgindi",
+          "sourceType": "EXPERT_COMMENTARY",
+          "publishedAt": "2026-09-06",
+          "excerpt": "Çulcu: 50′ buz gibi gol, 52′ iki kırmızı, 75′ çizgi dışında frikik+sarı kaçtı.",
+          "approved": true
+        },
+        {
+          "approved": true,
+          "title": "Penaltı mı değil mi?",
+          "publisher": "Erman Toroğlu / Halk TV",
+          "url": "https://halktv.com.tr/spor/erman-toroglu-acikladi-penalti-mi-degil-mi-1053367h",
+          "sourceType": "EXPERT_COMMENTARY",
+          "publishedAt": "2026-09-06",
+          "excerpt": "Toroğlu: Kerem’in penaltı beklediği pozisyon bence penaltı değil. Skor tarafı nota girmez."
+        }
+      ],
+      "incidents": [
+        {
+          "minute": 5,
+          "eventType": "PENALTY",
+          "onFieldDecision": "Devam (Agbadou / Oğuz, el)",
+          "editorialVerdict": "CORRECT",
+          "impactLevel": "CRITICAL",
+          "confidence": "HIGH_CONFIDENCE",
+          "description": "5–6′ ceza sahasında Agbadou’nun koluna/omzuna sekme. Fırat Aydınus: temas noktasına göre devam. Çulcu: görüntü zor, İrfan Can tepkisiz, devam kabul.",
+          "ifabRule": "IFAB 12 — El",
+          "ifabUrl": "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+          "sourceConfidence": 72,
+          "sources": [
+            {
+              "title": "Görüntüye göre devam",
+              "publisher": "Fırat Aydınus / Hürriyet",
+              "url": "https://www.hurriyet.com.tr/sporarena/yazarlar/firat-aydinus/besiktas-istedigini-aldi-43297589",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-09-06",
+              "excerpt": "Agbadou-Oğuz: Beşiktaşlı oyuncunun koluna temas, temas noktası önemli. Görüntüye göre devam.",
+              "approved": true
+            },
+            {
+              "title": "Temas yeri çözülmesi zor",
+              "publisher": "Mustafa Çulcu / A Spor",
+              "url": "https://www.aspor.com.tr/yazarlar/mustafa_culcu/2026/09/06/meler-tedirgindi",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-09-06",
+              "excerpt": "6′ omuz-kol bölgesi; görüntülerle temasın yerini çözmek zor. Hakem devam dedi.",
+              "approved": true
+            }
+          ]
+        },
+        {
+          "minute": 44,
+          "eventType": "YELLOW_CARD",
+          "onFieldDecision": "Sarı kart (Emirhan Topçu)",
+          "editorialVerdict": "CORRECT",
+          "impactLevel": "LOW",
+          "confidence": "HIGH_CONFIDENCE",
+          "description": "44′ Emirhan Topçu, Vedat Muriqi’yi arkadan çekerek sarı gördü. Canlı anlatım; Trio bu kartı hatalı saymadı.",
+          "ifabRule": "IFAB 12 — Uyarı",
+          "ifabUrl": "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+          "sourceConfidence": 74,
+          "sources": [
+            {
+              "title": "Kadıköy derbi anlatımı",
+              "publisher": "Cumhuriyet",
+              "url": "https://www.cumhuriyet.com.tr/spor/kadikoy-de-vlahovic-ile-guldu-dev-derbide-kazanan-besiktas-2535149",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-09-05",
+              "excerpt": "Dakika dakika sarı kartlar ve 76′ penaltı itirazı.",
+              "approved": true
+            }
+          ]
+        },
+        {
+          "minute": 45,
+          "eventType": "YELLOW_CARD",
+          "onFieldDecision": "Sarı kart (Mason Greenwood)",
+          "editorialVerdict": "CORRECT",
+          "impactLevel": "LOW",
+          "confidence": "HIGH_CONFIDENCE",
+          "description": "45′ Mason Greenwood, Olaitan’a faul sonrası sarı. Takvim 45+1 yazar; Trio kartı tartışmadı.",
+          "ifabRule": "IFAB 12 — Uyarı",
+          "ifabUrl": "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+          "sourceConfidence": 74,
+          "sources": [
+            {
+              "title": "Kadıköy derbi anlatımı",
+              "publisher": "Cumhuriyet",
+              "url": "https://www.cumhuriyet.com.tr/spor/kadikoy-de-vlahovic-ile-guldu-dev-derbide-kazanan-besiktas-2535149",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-09-05",
+              "excerpt": "Dakika dakika sarı kartlar ve 76′ penaltı itirazı.",
+              "approved": true
+            },
+            {
+              "title": "Derbi kart dakikaları",
+              "publisher": "Takvim",
+              "url": "https://www.takvim.com.tr/spor/superlig/2026/09/04/besiktas-super-ligde-fenerbahceyi-2-1-yendi",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-09-05",
+              "excerpt": "45 Topçu, 45+1 Greenwood, 52 Skriniar ve Ederson, 53 Vlahovic sarı.",
+              "approved": true
+            }
+          ]
+        },
+        {
+          "minute": 50,
+          "eventType": "GOAL",
+          "onFieldDecision": "Faul, gol yok (Vlahović / Kanté)",
+          "editorialVerdict": "DEBATABLE",
+          "impactLevel": "CRITICAL",
+          "confidence": "SPLIT",
+          "description": "50′ Vlahović gol vuruşu öncesi düdük. Çulcu ve Yıldırım goldü dedi; Çoban faul yok, erken düdük. Bitnel ve Aydınus forma çekmeyi ihlal saydı (Bitnel iptali doğru buldu). VAR bakamadı çünkü top ağlara gitmeden oyun durdu.",
+          "ifabRule": "IFAB 12 / avantaj",
+          "ifabUrl": "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+          "sourceConfidence": 70,
+          "sources": [
+            {
+              "title": "Buz gibi goldü",
+              "publisher": "Mustafa Çulcu / A Spor",
+              "url": "https://www.aspor.com.tr/yazarlar/mustafa_culcu/2026/09/06/meler-tedirgindi",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-09-06",
+              "excerpt": "Karşılıklı basit temas; modern futbolda faul değil, buz gibi goldü.",
+              "approved": true
+            },
+            {
+              "title": "İptal doğru",
+              "publisher": "Deniz Ateş Bitnel",
+              "url": "https://spor.haber7.com/super-lig/haber/3657296-eski-hakemler-derbinin-tartismali-pozisyonlarini-degerlendirdi",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-09-06",
+              "excerpt": "Bitnel: avantajlı Kanté formasından çekildi; gol iptali doğru. Aydınus da çekmeyi faul saydı.",
+              "approved": true
+            },
+            {
+              "title": "Düdük zamanlaması yanlış",
+              "publisher": "Fırat Aydınus / Hürriyet",
+              "url": "https://www.hurriyet.com.tr/sporarena/yazarlar/firat-aydinus/besiktas-istedigini-aldi-43297589",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-09-06",
+              "excerpt": "Vlahović Kanté’yi formasından çekiyor; Meler’in düdük zamanlaması yanlış.",
+              "approved": true
+            }
+          ]
+        },
+        {
+          "minute": 52,
+          "eventType": "RED_CARD",
+          "onFieldDecision": "Sarı kartlar (Skriniar / Vlahović); kırmızı yok",
+          "editorialVerdict": "INCORRECT",
+          "impactLevel": "CRITICAL",
+          "confidence": "HIGH_CONFIDENCE_WRONG",
+          "description": "52′ Skriniar boğaz, Vlahović el hareketi. Sarılarla geçildi. Aydınus, Bitnel, Çulcu, Çoban ve Çakar en az bir (çoğu iki) kırmızı dedi. Tek olay, tam kritik ceza.",
+          "ifabRule": "IFAB 12 — Şiddetli davranış",
+          "ifabUrl": "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+          "sourceConfidence": 90,
+          "sources": [
+            {
+              "title": "Çoban: kırmızı olmalıydı",
+              "publisher": "GZT / beIN Trio",
+              "url": "https://www.gzt.com/spor/fenerbahce-besiktas-hakem-yorumlari-kerem-akturkoglunun-penalti-bekledigi-pozisyon-icin-trio-ekibinden-olay-yorum-4258178",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-09-06",
+              "excerpt": "Deniz Çoban her iki oyuncuya kırmızı ve VAR müdahalesi istedi. Panelin geri kalanı bu maddede alıntılanmadı.",
+              "approved": true
+            },
+            {
+              "title": "İkisi de kırmızı",
+              "publisher": "Fırat Aydınus / Hürriyet",
+              "url": "https://www.hurriyet.com.tr/sporarena/firat-aydinus-skriniar-da-vlahovic-de-kirmizi-kart-gormeliydi-43297620",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-09-06",
+              "excerpt": "Skriniar yaptığı eylemden, Vlahović el hareketinden kırmızı görmeliydi.",
+              "approved": true
+            },
+            {
+              "title": "Her iki oyuncu kırmızı",
+              "publisher": "Deniz Ateş Bitnel",
+              "url": "https://spor.haber7.com/super-lig/haber/3657296-eski-hakemler-derbinin-tartismali-pozisyonlarini-degerlendirdi",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-09-06",
+              "excerpt": "Bitnel: Vlahovic ve Skriniar kırmızı kart görmeliydi.",
+              "approved": true
+            },
+            {
+              "title": "Sarı ile geçiştirdi",
+              "publisher": "Mustafa Çulcu / A Spor",
+              "url": "https://www.aspor.com.tr/yazarlar/mustafa_culcu/2026/09/06/meler-tedirgindi",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-09-06",
+              "excerpt": "Skriniar boğazını sıkıyor, Vlahović kabul edilemez el işareti; ikisi de sarı değil kırmızı olmalıydı.",
+              "approved": true
+            },
+            {
+              "title": "Skriniar’ı atamadı",
+              "publisher": "Ahmet Çakar",
+              "url": "https://halktv.com.tr/spor/ahmet-cakar-keremin-penalti-bekledigi-pozisyona-son-noktayi-koydu-1053362h",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-09-06",
+              "excerpt": "Çakar: Vlahovic’in boğazını sıkan Skriniar’ı oyundan atamadı. Kerem penaltısında devamı doğru buldu.",
+              "approved": true
+            }
+          ]
+        },
+        {
+          "minute": 52,
+          "eventType": "YELLOW_CARD",
+          "onFieldDecision": "Sarı kart (Milan Skriniar)",
+          "editorialVerdict": "CORRECT",
+          "impactLevel": "LOW",
+          "confidence": "HIGH_CONFIDENCE",
+          "description": "52′ Skriniar–Vlahovic gerginliği. Orta hakem Skriniar’a sarı gösterdi. Maç raporu kaydı.",
+          "ifabRule": "IFAB 12 — Uyarı",
+          "ifabUrl": "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+          "sourceConfidence": 76,
+          "sources": [
+            {
+              "title": "Kadıköy derbi anlatımı",
+              "publisher": "Cumhuriyet",
+              "url": "https://www.cumhuriyet.com.tr/spor/kadikoy-de-vlahovic-ile-guldu-dev-derbide-kazanan-besiktas-2535149",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-09-05",
+              "excerpt": "Dakika dakika sarı kartlar ve 76′ penaltı itirazı.",
+              "approved": true
+            },
+            {
+              "title": "Derbi kart dakikaları",
+              "publisher": "Takvim",
+              "url": "https://www.takvim.com.tr/spor/superlig/2026/09/04/besiktas-super-ligde-fenerbahceyi-2-1-yendi",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-09-05",
+              "excerpt": "45 Topçu, 45+1 Greenwood, 52 Skriniar ve Ederson, 53 Vlahovic sarı.",
+              "approved": true
+            }
+          ]
+        },
+        {
+          "minute": 52,
+          "eventType": "YELLOW_CARD",
+          "onFieldDecision": "Sarı kart (Ederson)",
+          "editorialVerdict": "CORRECT",
+          "impactLevel": "LOW",
+          "confidence": "HIGH_CONFIDENCE",
+          "description": "52′ Kaleci Ederson kale alanını terk edip tartışmaya girdiği için sarı. Maç raporu.",
+          "ifabRule": "IFAB 12 — Uyarı",
+          "ifabUrl": "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+          "sourceConfidence": 74,
+          "sources": [
+            {
+              "title": "Derbi kart dakikaları",
+              "publisher": "Takvim",
+              "url": "https://www.takvim.com.tr/spor/superlig/2026/09/04/besiktas-super-ligde-fenerbahceyi-2-1-yendi",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-09-05",
+              "excerpt": "45 Topçu, 45+1 Greenwood, 52 Skriniar ve Ederson, 53 Vlahovic sarı.",
+              "approved": true
+            }
+          ]
+        },
+        {
+          "minute": 53,
+          "eventType": "YELLOW_CARD",
+          "onFieldDecision": "Sarı kart (Dušan Vlahović)",
+          "editorialVerdict": "CORRECT",
+          "impactLevel": "LOW",
+          "confidence": "HIGH_CONFIDENCE",
+          "description": "53′ Vlahović, Skriniar ile tartışmanın ardından sarı. Maç raporu.",
+          "ifabRule": "IFAB 12 — Uyarı",
+          "ifabUrl": "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+          "sourceConfidence": 74,
+          "sources": [
+            {
+              "title": "Derbi kart dakikaları",
+              "publisher": "Takvim",
+              "url": "https://www.takvim.com.tr/spor/superlig/2026/09/04/besiktas-super-ligde-fenerbahceyi-2-1-yendi",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-09-05",
+              "excerpt": "45 Topçu, 45+1 Greenwood, 52 Skriniar ve Ederson, 53 Vlahovic sarı.",
+              "approved": true
+            }
+          ]
+        },
+        {
+          "minute": 59,
+          "eventType": "YELLOW_CARD",
+          "onFieldDecision": "Sarı kart (Václav Černý)",
+          "editorialVerdict": "CORRECT",
+          "impactLevel": "LOW",
+          "confidence": "HIGH_CONFIDENCE",
+          "description": "59′ Václav Černý, Oğuz Aydın’a faul sonrası sarı. Canlı anlatım; Trio işlemedi.",
+          "ifabRule": "IFAB 12 — Uyarı",
+          "ifabUrl": "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+          "sourceConfidence": 72,
+          "sources": [
+            {
+              "title": "Kadıköy derbi anlatımı",
+              "publisher": "Cumhuriyet",
+              "url": "https://www.cumhuriyet.com.tr/spor/kadikoy-de-vlahovic-ile-guldu-dev-derbide-kazanan-besiktas-2535149",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-09-05",
+              "excerpt": "Dakika dakika sarı kartlar ve 76′ penaltı itirazı.",
+              "approved": true
+            }
+          ]
+        },
+        {
+          "minute": 75,
+          "eventType": "PENALTY",
+          "onFieldDecision": "Devam (Aktürkoğlu / Özcan)",
+          "editorialVerdict": "DEBATABLE",
+          "impactLevel": "CRITICAL",
+          "confidence": "SPLIT",
+          "description": "75/76′ Aktürkoğlu–Özcan. Çoban ve Demirel çizgide penaltı; Yıldırım, Aydınus, Bitnel, Çakar ve Toroğlu penaltı değil / devam. Çulcu: dışarıdaysa frikik+sarı eksik. Bölünme korundu, %40.",
+          "ifabRule": "IFAB 12",
+          "ifabUrl": "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+          "sourceConfidence": 76,
+          "sources": [
+            {
+              "title": "Trio: penaltı olmalıydı / devam",
+              "publisher": "GZT / beIN Trio",
+              "url": "https://www.gzt.com/spor/fenerbahce-besiktas-hakem-yorumlari-kerem-akturkoglunun-penalti-bekledigi-pozisyon-icin-trio-ekibinden-olay-yorum-4258178",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-09-06",
+              "excerpt": "Deniz Çoban ve Seçim Demirel penaltı dedi. Bülent Yıldırım devam dedi.",
+              "approved": true
+            },
+            {
+              "title": "76′ penaltı itirazı ve Guendouzi sarı",
+              "publisher": "Cumhuriyet",
+              "url": "https://www.cumhuriyet.com.tr/spor/kadikoy-de-vlahovic-ile-guldu-dev-derbide-kazanan-besiktas-2535149",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-09-05",
+              "excerpt": "Aktürkoğlu çizgide yerde kaldı; Meler devam, VAR devam. Guendouzi itiraz sarı kartı gördü.",
+              "approved": true
+            },
+            {
+              "title": "Açılar eylemi dışarıda gösteriyor",
+              "publisher": "Fırat Aydınus / Hürriyet",
+              "url": "https://www.hurriyet.com.tr/sporarena/yazarlar/firat-aydinus/besiktas-istedigini-aldi-43297589",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-09-06",
+              "excerpt": "74′ Salih’in Kerem’e müdahalesi faul. Yayıncı açıları eylemin dışarıda olduğunu gösteriyor.",
+              "approved": true
+            },
+            {
+              "title": "Penaltı olmaz",
+              "publisher": "Deniz Ateş Bitnel",
+              "url": "https://spor.haber7.com/super-lig/haber/3657296-eski-hakemler-derbinin-tartismali-pozisyonlarini-degerlendirdi",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-09-06",
+              "excerpt": "Bitnel: ihlal var ama bozan temas ceza alanı dışında. Penaltı olmaz.",
+              "approved": true
+            },
+            {
+              "title": "Devam kararı doğru",
+              "publisher": "Ahmet Çakar",
+              "url": "https://halktv.com.tr/spor/ahmet-cakar-keremin-penalti-bekledigi-pozisyona-son-noktayi-koydu-1053362h",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-09-06",
+              "excerpt": "Çakar: Kerem penaltı bekledi ama devam kararı doğru.",
+              "approved": true
+            },
+            {
+              "title": "Frikik ve sarı kaçtı",
+              "publisher": "Mustafa Çulcu / A Spor",
+              "url": "https://www.aspor.com.tr/yazarlar/mustafa_culcu/2026/09/06/meler-tedirgindi",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-09-06",
+              "excerpt": "Çizgi içinde olsa VAR girerdi, girmedi demek ki dışarıda. O halde frikik ve sarı verilmeliydi; devam büyük hata.",
+              "approved": true
+            },
+            {
+              "approved": true,
+              "title": "Penaltı mı değil mi?",
+              "publisher": "Erman Toroğlu / Halk TV",
+              "url": "https://halktv.com.tr/spor/erman-toroglu-acikladi-penalti-mi-degil-mi-1053367h",
+              "sourceType": "EXPERT_COMMENTARY",
+              "publishedAt": "2026-09-06",
+              "excerpt": "Toroğlu, Sözcü TV: Kerem’in penaltı beklediği pozisyon. Bence penaltı değil."
+            }
+          ]
+        },
+        {
+          "minute": 76,
+          "eventType": "YELLOW_CARD",
+          "onFieldDecision": "Sarı kart (Mattéo Guendouzi)",
+          "editorialVerdict": "CORRECT",
+          "impactLevel": "LOW",
+          "confidence": "HIGH_CONFIDENCE",
+          "description": "76′ Penaltı itirazının ardından Mattéo Guendouzi sarı kart. Dissent uyarısı; Trio hatalı demedi.",
+          "ifabRule": "IFAB 12 — Uyarı",
+          "ifabUrl": "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+          "sourceConfidence": 74,
+          "sources": [
+            {
+              "title": "Kadıköy derbi anlatımı",
+              "publisher": "Cumhuriyet",
+              "url": "https://www.cumhuriyet.com.tr/spor/kadikoy-de-vlahovic-ile-guldu-dev-derbide-kazanan-besiktas-2535149",
+              "sourceType": "NEWS",
+              "publishedAt": "2026-09-05",
+              "excerpt": "Dakika dakika sarı kartlar ve 76′ penaltı itirazı.",
+              "approved": true
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

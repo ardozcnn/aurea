@@ -13,7 +13,7 @@ from typing import Any
 from app.config import DATA_DIR, FANTASY_CACHE, FANTASY_ROOT
 from app.store import json_safe
 
-_LOCK = threading.Lock()
+_LOCK = threading.RLock()
 _THREAD: threading.Thread | None = None
 _STATE: dict[str, Any] = {
     "phase": "idle",
@@ -301,9 +301,10 @@ def status() -> dict[str, Any]:
 
 def last_payload() -> dict[str, Any] | None:
     with _LOCK:
-        if not _LAST:
-            return None
-        payload = json_safe(_LAST)
+        raw = _LAST
+    if not raw:
+        return None
+    payload = json_safe(raw)
     result = payload.get("result")
     if isinstance(result, dict):
         result["bench"] = _stamp_bench_ranks(_player_rows(result.get("bench")))
@@ -406,10 +407,11 @@ def _xi_table(result: dict[str, Any]) -> list[dict[str, Any]]:
 
 def account_public() -> dict[str, Any] | None:
     with _LOCK:
-        if not _SESSION:
+        session = _SESSION
+        if not session:
             return None
-        out = {k: v for k, v in _SESSION.items() if k not in {"tokens", "password"}}
-        return json_safe(out)
+        out = {k: v for k, v in session.items() if k not in {"tokens", "password"}}
+    return json_safe(out)
 
 
 def _slim_player(row: dict[str, Any]) -> dict[str, Any]:
@@ -2378,17 +2380,16 @@ def _run(fetch_prices: bool, refresh_cache: bool) -> None:
 def start(fetch_prices: bool = True, refresh_cache: bool = False) -> dict[str, Any]:
     global _THREAD
     with _LOCK:
-        if not (_SESSION and _SESSION.get("ok")):
-            return {
-                **status(),
-                "error": "Önce TFF Fantezi Lig hesabına girin.",
-            }
-        if _THREAD and _THREAD.is_alive():
-            return status()
-        _THREAD = threading.Thread(
-            target=_run,
-            kwargs={"fetch_prices": fetch_prices, "refresh_cache": refresh_cache},
-            daemon=True,
-        )
-        _THREAD.start()
-    return status()
+        logged = bool(_SESSION and _SESSION.get("ok"))
+        busy = bool(_THREAD and _THREAD.is_alive())
+        if logged and not busy:
+            _THREAD = threading.Thread(
+                target=_run,
+                kwargs={"fetch_prices": fetch_prices, "refresh_cache": refresh_cache},
+                daemon=True,
+            )
+            _THREAD.start()
+    snap = status()
+    if not logged:
+        snap["error"] = "Önce TFF Fantezi Lig hesabına girin."
+    return snap
