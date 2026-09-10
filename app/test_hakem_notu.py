@@ -161,6 +161,13 @@ class RateMatchTests(unittest.TestCase):
         self.assertTrue(
             any("mustafa-culcu" in (src.get("url") or "") for src in samsun["sources"])
         )
+        desk = home_pack()
+        self.assertIn("galatasaray-goztepe-2026-3", {row["slug"] for row in desk["highest"]})
+        for row in desk["highest"] + desk["lowest"]:
+            self.assertTrue(row.get("incidents"), row["slug"])
+        noted = [row for row in desk["matches"] if row.get("incidents")]
+        self.assertEqual(desk["summary"]["ratedMatchCount"], len(noted))
+        self.assertLess(desk["summary"]["averageScore"], 96)
 
 
 class HarvestTests(unittest.TestCase):

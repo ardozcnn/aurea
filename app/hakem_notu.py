@@ -298,10 +298,15 @@ def catalog() -> dict[str, Any]:
     return {"referees": list(refs.values()), "matches": matches}
 
 
+def _noted_match(match: dict[str, Any]) -> bool:
+    """Uzman kararı yoksa 100’lük otomatik maç notlanmış sayılmaz."""
+    return bool(match.get("rating") and match.get("incidents"))
+
+
 def home_pack() -> dict[str, Any]:
     pack = catalog()
     matches = pack["matches"]
-    rated = [row for row in matches if row.get("rating")]
+    rated = [row for row in matches if _noted_match(row)]
     ranked = sorted(
         rated,
         key=lambda row: row["rating"]["score"],
@@ -367,7 +372,7 @@ def referee_list() -> list[dict[str, Any]]:
         ratings = [
             match
             for match in pack["matches"]
-            if match.get("rating") and match["rating"]["referee"]["slug"] == ref["slug"]
+            if _noted_match(match) and match["rating"]["referee"]["slug"] == ref["slug"]
         ]
         if not ratings:
             continue

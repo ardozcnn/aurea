@@ -2194,7 +2194,7 @@ function hakemMatchCard(match) {
     <h3>${esc(match.title)}</h3>
     <p class="sub">${esc(match.scoreline)} · ${esc(match.playedLabel)}</p>
     <p class="hakem-card-ref">Orta hakem <b>${esc(ref)}</b></p>
-    <div class="hakem-card-meta"><span>${esc(incidents.length)} karar kaydı</span><span>${disputed ? `${esc(disputed)} tartışmalı` : "Tartışmalı karar yok"}</span></div>
+    <div class="hakem-card-meta"><span>${incidents.length ? `${esc(incidents.length)} karar kaydı` : "Uzman kaydı yok"}</span><span>${disputed ? `${esc(disputed)} tartışmalı` : (incidents.length ? "Tartışmalı karar yok" : "Not henüz düşülmedi")}</span></div>
     ${match.isDemo ? `<span class="stamp belirsiz">Örnek / test verisi</span>` : ""}
   </a>`;
 }
@@ -2322,10 +2322,10 @@ async function renderHakemDesk(parts, gen) {
   const grid = document.getElementById("hakem-match-grid");
   const empty = document.getElementById("hakem-match-empty");
   filter?.addEventListener("input", () => {
-    const query = filter.value.trim().toLocaleLowerCase("tr-TR");
+    const query = foldTr(filter.value.trim());
     let visible = 0;
     [...(grid?.children || [])].forEach((card) => {
-      const show = !query || card.textContent.toLocaleLowerCase("tr-TR").includes(query);
+      const show = !query || foldTr(card.textContent).includes(query);
       card.classList.toggle("hidden", !show);
       if (show) visible += 1;
     });
