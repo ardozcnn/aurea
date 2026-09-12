@@ -2294,7 +2294,7 @@ async function renderHakemDesk(parts, gen) {
   view.innerHTML = `
     ${hakemNav()}
     <section class="panel page-head">
-      <p class="kicker">Süper Lig · editöryal hakem masası</p>
+      <p class="kicker">Süper Lig · editoryal hakem masası</p>
       <h1>Maçın kararlarını, bağlamıyla okuyun.</h1>
       <p class="lede">Orta hakemin kararlarını maç bazında, kaynak ve güven seviyesiyle izleyin. Puan yalnızca yayımlanmış uzman değerlendirmesi yeterli olduğunda değişir.</p>
       <div class="hakem-hero-note"><span class="hakem-hero-mark">01</span><span>${esc(data.disclaimer || "")}</span></div>
