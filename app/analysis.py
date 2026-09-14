@@ -1,5 +1,3 @@
-"""Oyuncu dosyası için resmi Türkçe analiz metinleri."""
-
 from __future__ import annotations
 
 from typing import Any
