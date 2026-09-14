@@ -9,7 +9,7 @@ Bu proje TFF’nin resmî bir ürünü değildir. Üretilen kadrolar istatistiks
 ## Ne gösterir
 
 - **Transfermarkt:** Piyasanın yazdığı etiket.
-- **Aurea değeri:** Dakika, gol, asist, yaş, lig ve emsalden gelen tahmin.
+- **Aurea Değeri:** Dakika, gol, asist, yaş, lig ve emsalden gelen tahmin.
 - **Scout:** Etiketi Aurea değerinin altında kalan isimler.
 - **Süper Lig:** 2026/27 gelen transferler; bedel, etiket ve Aurea karşılaştırması.
 - **TFF Fantezi Lig:** Hesaba girince kadro, diziliş ve menajer kartı önerisi.
